@@ -6,6 +6,7 @@ import AppKit
 /// shivers and says so, rather than quietly handing your keystrokes to a
 /// search engine.
 struct Omnibox: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var browser: Browser
     /// Raised over a page by ⌘L, rather than standing on an empty tab.
     let over: Bool
@@ -13,7 +14,13 @@ struct Omnibox: View {
     /// The field's own height — the 22 of text and 14 of air above and below it
     /// that `field` lays out — so the list can sit below it without being
     /// stacked with it.
-    private static let fieldHeight: CGFloat = 22 + 14 * 2
+    static let fieldHeight: CGFloat = 22 + 14 * 2
+    static let cornerRadius: CGFloat = 14
+    static let lift: CGFloat = 60
+
+    private var isDark: Bool {
+        colorScheme == .dark
+    }
 
     @State private var shake: CGFloat = 0
     @State private var refused = false
@@ -47,7 +54,7 @@ struct Omnibox: View {
                 // Lifted a little above centre: dead centre reads as low,
                 // because the strip at the top isn't part of what the eye is
                 // measuring.
-                .padding(.bottom, 60)
+                .padding(.bottom, Self.lift)
                 // The list's arrival and its leaving are animated from here,
                 // briefly: nothing that changes the suggestions does it inside
                 // an animation of its own. Its rows follow what was typed or
@@ -71,12 +78,15 @@ struct Omnibox: View {
                     // an app.
                     Breath()
 
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Palette.ground)
+                    FrostedGlass(material: .popover, cornerRadius: Self.cornerRadius)
+                        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+
+                    RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                        .fill(isDark ? Color.black.opacity(0.22) : Color.white.opacity(0.22))
                 }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                     .strokeBorder(
                         refused ? Color.red.opacity(0.35) : Palette.hairline,
                         lineWidth: 1
@@ -243,6 +253,35 @@ private struct Breath: NSViewRepresentable {
             both.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             glow.add(both, forKey: "breath")
         }
+    }
+}
+
+/// A non-interactive NSVisualEffectView configured for in-window blending so that
+/// both SwiftUI content (blank-tab artwork) and AppKit content (WKWebView on ⌘L)
+/// softly show through with native macOS backdrop blur.
+private struct FrostedGlass: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .popover
+    var cornerRadius: CGFloat = 14
+
+    func makeNSView(context: Context) -> GlassView {
+        let view = GlassView()
+        view.material = material
+        view.blendingMode = .withinWindow
+        view.state = .active
+        view.wantsLayer = true
+        view.layer?.cornerRadius = cornerRadius
+        view.layer?.cornerCurve = .continuous
+        view.layer?.masksToBounds = true
+        return view
+    }
+
+    func updateNSView(_ view: GlassView, context: Context) {
+        view.material = material
+        view.layer?.cornerRadius = cornerRadius
+    }
+
+    final class GlassView: NSVisualEffectView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
 

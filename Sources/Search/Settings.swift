@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 /// Everything there is to set. Pages down the left, one page at a time on
 /// the right, each a short list of lines with a hairline between them —
@@ -13,6 +15,8 @@ struct SettingsPanel: View {
     @ObservedObject private var shield = Shield.shared
     @State private var isDefault = Links.isDefault
     @State private var page: Page = Page(rawValue: Store.settings.string(forKey: "settings.page") ?? "") ?? .general
+    @State private var artworkURL: URL? = NewTabArtwork.imageURL
+    @State private var artworkThumbnail: NSImage? = NewTabArtwork.current()
 
     enum Page: String, CaseIterable, Identifiable {
         case general, tabs, extensions, passwords, downloads, privacy, about
@@ -60,6 +64,10 @@ struct SettingsPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.16), radius: 34, y: 12)
         .onChange(of: page) { _, page in Store.settings.set(page.rawValue, forKey: "settings.page") }
+        .onAppear { updateArtworkState() }
+        .onReceive(NotificationCenter.default.publisher(for: NewTabArtwork.didChange)) { _ in
+            updateArtworkState()
+        }
     }
 
     // MARK: - the rail
@@ -152,96 +160,107 @@ struct SettingsPanel: View {
     // MARK: - general
 
     private var general: some View {
-        Card {
-            Line(
-                "Open links from other apps",
-                isDefault ? "Search is the default browser on this Mac" : "Mail, Slack and the rest still send links elsewhere"
-            ) {
-                if isDefault {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Palette.ink)
-                        .frame(width: 24)
-                } else {
-                    Pill("Make default", filled: true) {
-                        Links.becomeDefault { worked in
-                            isDefault = Links.isDefault
-                            browser.announce(worked && isDefault ? "Links now open here" : "macOS didn't change it")
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Caption("Appearance")
+                Card {
+                    Line("Appearance", "Light, dark, or whatever the Mac is doing — pages follow it too") {
+                        Segmented(options: Look.allCases.map { ($0, $0.title) }, selection: $prefs.look)
+                    }
+                    Rule()
+                    Line("New Tab Background", artworkDetail) {
+                        artworkControls
+                    }
+                }
+            }
+
+            Card {
+                Line(
+                    "Open links from other apps",
+                    isDefault ? "Search is the default browser on this Mac" : "Mail, Slack and the rest still send links elsewhere"
+                ) {
+                    if isDefault {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Palette.ink)
+                            .frame(width: 24)
+                    } else {
+                        Pill("Make default", filled: true) {
+                            Links.becomeDefault { worked in
+                                isDefault = Links.isDefault
+                                browser.announce(worked && isDefault ? "Links now open here" : "macOS didn't change it")
+                            }
                         }
                     }
                 }
-            }
-            Rule()
-            Line("Search with", searchDetail) {
-                Picker("", selection: $prefs.engine) {
-                    ForEach(Engine.allCases) { engine in
-                        Text(engine.title).tag(engine)
+                Rule()
+                Line("Search with", searchDetail) {
+                    Picker("", selection: $prefs.engine) {
+                        ForEach(Engine.allCases) { engine in
+                            Text(engine.title).tag(engine)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .fixedSize()
-            }
-            if prefs.engine == .custom {
-                ZStack(alignment: .leading) {
-                    if prefs.customEngine.isEmpty {
-                        Text("https://example.com/search?q=%s")
-                            .foregroundStyle(Palette.muted.opacity(0.8))
+                if prefs.engine == .custom {
+                    ZStack(alignment: .leading) {
+                        if prefs.customEngine.isEmpty {
+                            Text("https://example.com/search?q=%s")
+                                .foregroundStyle(Palette.muted.opacity(0.8))
+                        }
+                        TextField("", text: $prefs.customEngine)
+                            .textFieldStyle(.plain)
+                            .foregroundStyle(Palette.ink)
                     }
-                    TextField("", text: $prefs.customEngine)
-                        .textFieldStyle(.plain)
-                        .foregroundStyle(Palette.ink)
+                    .font(.system(size: 12.5))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 11)
                 }
-                .font(.system(size: 12.5))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .padding(.horizontal, 14)
-                .padding(.bottom, 11)
-            }
-            Rule()
-            Line("Appearance", "Light, dark, or whatever the Mac is doing — pages follow it too") {
-                Segmented(options: Look.allCases.map { ($0, $0.title) }, selection: $prefs.look)
-            }
-            Rule()
-            Line("Correct spelling as you type", "macOS's autocorrect inside pages — the one that capitalises for you") {
-                Switch(on: $prefs.autocorrect)
-            }
-            Rule()
-            Line("Peek at a link with a shift-click", "Its page opens in a panel over the one you're reading. Escape puts it away; the other button keeps it as a tab") {
-                Switch(on: $prefs.peeksLinks)
-            }
-            Rule()
-            Line("Open links from other apps in a small window", "To read and close, or keep with Open in Search (⌘O)") {
-                Switch(on: $prefs.littleLinks)
-            }
-            Rule()
-            Line("Show where links go", "Point at a link and its address shows at the bottom of the page") {
-                Switch(on: $prefs.showsLinks)
-            }
-            Rule()
-            Line("Scroll with the middle button", "Click the wheel on a page, then move the mouse up or down to scroll, as on Windows. Click again to stop") {
-                Switch(on: $prefs.autoScroll)
-            }
-            Rule()
-            Line("Pages at 120 Hz", "Animations and scrolling in pages at up to 120 frames a second on a screen that can, instead of 60 as in Safari. Uses more battery. Open tabs follow when reloaded") {
-                Switch(on: $prefs.fastPages)
-            }
-            Rule()
-            Line("Flick the floating video to a corner", "Two fingers on it send it to the corner or edge they point at, instead of pushing it along. Dragging still puts it anywhere") {
-                Switch(on: $prefs.floatFlicks)
-            }
-            Rule()
-            Line("Float the video when you switch tabs", "A video playing on YouTube and the like comes out into its floating window when you go to another tab, and back when you return. ⇧⌘P still floats one by hand") {
-                Switch(on: $prefs.floatsOnLeave)
-            }
-            Rule()
-            Line("Float the video when you switch apps", "A video playing on the site you're on comes out into its floating window as another app comes to the front, and goes back into its tab when you return") {
-                Switch(on: $prefs.floatsAway)
-            }
-            Rule()
-            Line("Let a script drive Search", "A local socket for testing. Its tabs open beside yours with a flask on them and never take over — see ./bench") {
-                Switch(on: $prefs.bench)
+                Rule()
+                Line("Correct spelling as you type", "macOS's autocorrect inside pages — the one that capitalises for you") {
+                    Switch(on: $prefs.autocorrect)
+                }
+                Rule()
+                Line("Peek at a link with a shift-click", "Its page opens in a panel over the one you're reading. Escape puts it away; the other button keeps it as a tab") {
+                    Switch(on: $prefs.peeksLinks)
+                }
+                Rule()
+                Line("Open links from other apps in a small window", "To read and close, or keep with Open in Search (⌘O)") {
+                    Switch(on: $prefs.littleLinks)
+                }
+                Rule()
+                Line("Show where links go", "Point at a link and its address shows at the bottom of the page") {
+                    Switch(on: $prefs.showsLinks)
+                }
+                Rule()
+                Line("Scroll with the middle button", "Click the wheel on a page, then move the mouse up or down to scroll, as on Windows. Click again to stop") {
+                    Switch(on: $prefs.autoScroll)
+                }
+                Rule()
+                Line("Pages at 120 Hz", "Animations and scrolling in pages at up to 120 frames a second on a screen that can, instead of 60 as in Safari. Uses more battery. Open tabs follow when reloaded") {
+                    Switch(on: $prefs.fastPages)
+                }
+                Rule()
+                Line("Flick the floating video to a corner", "Two fingers on it send it to the corner or edge they point at, instead of pushing it along. Dragging still puts it anywhere") {
+                    Switch(on: $prefs.floatFlicks)
+                }
+                Rule()
+                Line("Float the video when you switch tabs", "A video playing on YouTube and the like comes out into its floating window when you go to another tab, and back when you return. ⇧⌘P still floats one by hand") {
+                    Switch(on: $prefs.floatsOnLeave)
+                }
+                Rule()
+                Line("Float the video when you switch apps", "A video playing on the site you're on comes out into its floating window as another app comes to the front, and goes back into its tab when you return") {
+                    Switch(on: $prefs.floatsAway)
+                }
+                Rule()
+                Line("Let a script drive Search", "A local socket for testing. Its tabs open beside yours with a flask on them and never take over — see ./bench") {
+                    Switch(on: $prefs.bench)
+                }
             }
         }
     }
@@ -252,6 +271,64 @@ struct SettingsPanel: View {
             return "An http or https address with %s where the words go. Until then, Google"
         }
         return "Words go to \(prefs.engine.name(custom: prefs.customEngine))"
+    }
+
+    private var artworkDetail: String {
+        if let url = artworkURL {
+            return url.lastPathComponent
+        }
+        return "Shown on blank tabs behind the address field"
+    }
+
+    @ViewBuilder
+    private var artworkControls: some View {
+        if artworkURL != nil {
+            HStack(spacing: 8) {
+                if let thumb = artworkThumbnail {
+                    Image(nsImage: thumb)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 28, height: 20)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(Palette.hairline, lineWidth: 1)
+                        )
+                }
+                Pill("Change…") { chooseArtwork() }
+                Pill("Remove") { removeArtwork() }
+            }
+        } else {
+            Pill("Choose Image…") { chooseArtwork() }
+        }
+    }
+
+    private func chooseArtwork() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Choose Image"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        NewTabArtwork.setPath(url.path)
+    }
+
+    private func removeArtwork() {
+        NewTabArtwork.clear()
+    }
+
+    private func updateArtworkState() {
+        artworkURL = NewTabArtwork.imageURL
+        if let current = NewTabArtwork.current() {
+            artworkThumbnail = current
+        } else if artworkURL != nil {
+            NewTabArtwork.load { loaded in
+                self.artworkThumbnail = loaded
+            }
+        } else {
+            artworkThumbnail = nil
+        }
     }
 
     // MARK: - tabs

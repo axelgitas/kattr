@@ -23,6 +23,10 @@ struct Page: View {
             // the tab stayed empty. Nothing, then the page, is a change.
             WebStage(page: tab.isBlank || tab.asleep || tab.floating ? nil : tab.web)
 
+            if tab.isBlank {
+                NewTabBackground()
+            }
+
             if let cover = tab.cover {
                 // The page as it was left, while it is rebuilt underneath —
                 // anchored where the page itself starts, and never in the
