@@ -240,7 +240,7 @@ enum NewTabArtwork {
     static let didChange = Notification.Name("SearchNewTabArtworkDidChange")
     static let preferenceKey = "SearchNewTabArtwork"
 
-    private static var cached: (url: URL, image: NSImage)?
+    private static var cached: (url: URL, image: NSImage, colors: ArtworkColors)?
 
     /// The local image URL for new-tab artwork, if configured.
     /// Checks Store.settings under "SearchNewTabArtwork" or files in Search's data folder.
@@ -284,6 +284,28 @@ enum NewTabArtwork {
         if let cached, cached.url == url {
             return cached.image
         }
+        if let image = NSImage(contentsOf: url) {
+            let colors = ArtworkColors.extract(from: image)
+            cached = (url, image, colors)
+            return image
+        }
+        return nil
+    }
+
+    /// Returns the cached artwork colors synchronously if available.
+    static func currentColors() -> ArtworkColors? {
+        guard let url = imageURL else {
+            cached = nil
+            return nil
+        }
+        if let cached, cached.url == url {
+            return cached.colors
+        }
+        if let image = NSImage(contentsOf: url) {
+            let colors = ArtworkColors.extract(from: image)
+            cached = (url, image, colors)
+            return colors
+        }
         return nil
     }
 
@@ -300,9 +322,10 @@ enum NewTabArtwork {
         }
         DispatchQueue.global(qos: .userInitiated).async {
             let image = NSImage(contentsOf: url)
+            let colors = image.map { ArtworkColors.extract(from: $0) }
             DispatchQueue.main.async {
-                if let image {
-                    cached = (url, image)
+                if let image, let colors {
+                    cached = (url, image, colors)
                     completion(image)
                 } else {
                     completion(nil)

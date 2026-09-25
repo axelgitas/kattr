@@ -17,6 +17,9 @@ struct SettingsPanel: View {
     @State private var page: Page = Page(rawValue: Store.settings.string(forKey: "settings.page") ?? "") ?? .general
     @State private var artworkURL: URL? = NewTabArtwork.imageURL
     @State private var artworkThumbnail: NSImage? = NewTabArtwork.current()
+    @State private var chromeArtworkURL: URL? = ChromeArtwork.imageURL
+    @State private var chromeArtworkThumbnail: NSImage? = ChromeArtwork.current()
+    @State private var useSeparateChromeArtwork: Bool = ChromeArtwork.overrideNewTabArtwork
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
 
     enum Page: String, CaseIterable, Identifiable {
@@ -68,9 +71,16 @@ struct SettingsPanel: View {
         .onChange(of: page) { _, page in Store.settings.set(page.rawValue, forKey: "settings.page") }
         .onAppear {
             updateArtworkState()
+            updateChromeArtworkState()
         }
         .onReceive(NotificationCenter.default.publisher(for: NewTabArtwork.didChange)) { _ in
             updateArtworkState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ChromeArtwork.didChange)) { _ in
+            updateChromeArtworkState()
+        }
+        .onChange(of: useSeparateChromeArtwork) { _, newValue in
+            ChromeArtwork.overrideNewTabArtwork = newValue
         }
     }
 
@@ -174,6 +184,16 @@ struct SettingsPanel: View {
                     Rule()
                     Line("New Tab Background", artworkDetail) {
                         artworkControls
+                    }
+                    Rule()
+                    Line("Chrome Artwork", chromeArtworkDetail) {
+                        chromeArtworkControls
+                    }
+                    if chromeArtworkURL != nil {
+                        Rule()
+                        Line("Use Separate Chrome Artwork", "Show this artwork in the chrome. When off, the sidebar shows only frosted glass and background tint with no artwork.") {
+                            Switch(on: $useSeparateChromeArtwork)
+                        }
                     }
                     Rule()
                     Line("Light background", "Canvas color in light mode") {
@@ -361,6 +381,66 @@ struct SettingsPanel: View {
         } else {
             artworkThumbnail = nil
         }
+    }
+
+    private var chromeArtworkDetail: String {
+        if let url = chromeArtworkURL {
+            return url.lastPathComponent
+        }
+        return "Optional separate artwork for the tab strip or sidebar"
+    }
+
+    @ViewBuilder
+    private var chromeArtworkControls: some View {
+        if chromeArtworkURL != nil {
+            HStack(spacing: 8) {
+                if let thumb = chromeArtworkThumbnail {
+                    Image(nsImage: thumb)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 28, height: 20)
+                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                .strokeBorder(Palette.hairline, lineWidth: 1)
+                        )
+                }
+                Pill("Change…") { chooseChromeArtwork() }
+                Pill("Remove") { removeChromeArtwork() }
+            }
+        } else {
+            Pill("Choose Image…") { chooseChromeArtwork() }
+        }
+    }
+
+    private func chooseChromeArtwork() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Choose Image"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        ChromeArtwork.setPath(url.path)
+        useSeparateChromeArtwork = true
+    }
+
+    private func removeChromeArtwork() {
+        ChromeArtwork.clear()
+    }
+
+    private func updateChromeArtworkState() {
+        chromeArtworkURL = ChromeArtwork.imageURL
+        if let current = ChromeArtwork.current() {
+            chromeArtworkThumbnail = current
+        } else if chromeArtworkURL != nil {
+            ChromeArtwork.load { loaded in
+                self.chromeArtworkThumbnail = loaded
+            }
+        } else {
+            chromeArtworkThumbnail = nil
+        }
+        useSeparateChromeArtwork = ChromeArtwork.overrideNewTabArtwork
     }
 
     private var lightBinding: Binding<Color> {

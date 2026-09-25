@@ -6,6 +6,7 @@ import SwiftUI
 struct TabBar: View {
     @ObservedObject var browser: Browser
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
+    @ObservedObject private var legibility = ChromeLegibility.shared
 
     @Namespace private var pill
     /// The neighbouring spaces' own grey, apart from this one's.
@@ -22,6 +23,7 @@ struct TabBar: View {
 
     var body: some View {
         let _ = paletteUpdates.revision
+        let chrome = legibility.foreground(for: browser, isSidebar: false)
         // A GeometryReader is only here to measure the width. Its content is
         // put in a stack of its own and told to fill it: left to itself a
         // reader pins whatever it holds to the top corner, which is the row
@@ -108,14 +110,14 @@ struct TabBar: View {
                     Button { browser.newTab() } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(Palette.muted)
+                            .foregroundStyle(chrome.muted)
                             .frame(width: 15, height: 15)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 6)
                             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                             .background(
                                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .fill(plussed ? Palette.hover : .clear)
+                                    .fill(plussed ? chrome.hover : .clear)
                             )
                     }
                     .buttonStyle(.plain)
@@ -158,11 +160,12 @@ struct TabBar: View {
         .frame(height: Metrics.strip)
         .onHover { nearby = $0 }
         .onAppear { SpaceSwipe.shared.start(for: browser) }
+        .environment(\.chromeForeground, chrome)
         // A link dragged onto the row opens there.
         .onDrop(of: [.url, .text], isTargeted: $landing) { providers in
             browser.take(providers)
         }
-        .background(landing ? Palette.hover : .clear)
+        .background(ChromeBackgroundHost(browser: browser, isSidebar: false, landing: landing))
         .animation(Motion.quick, value: landing)
         .animation(Motion.glide, value: browser.activeID)
         // The row makes room for the field on the same spring as everything
@@ -339,6 +342,7 @@ struct Helm: View {
 }
 
 private struct TabPill: View {
+    @Environment(\.chromeForeground) private var chrome: ChromeForeground
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
     @ObservedObject var tab: Tab
@@ -497,9 +501,9 @@ private struct TabPill: View {
                     if hovering {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(Palette.muted)
+                            .foregroundStyle(chrome.muted)
                             .frame(width: 15, height: 15)
-                            .background(Palette.ink.opacity(0.07), in: Circle())
+                            .background(chrome.ink.opacity(0.07), in: Circle())
                             .transition(.opacity)
                     } else if tab.loading {
                         Ring().transition(.opacity)
@@ -537,14 +541,14 @@ private struct TabPill: View {
             // the one thing in the window that says how far in you are, and
             // it says it without adding anything to the window.
             ZStack(alignment: .leading) {
-                Rectangle().fill(Palette.wash)
+                Rectangle().fill(chrome.wash)
                 // Not on a pinned square, nor a tab down to its mark. Thirty
                 // points of grey filling from the left behind a single letter
                 // says nothing about anything — it needs the width of a title
                 // to read as progress at all.
                 if !pinned && !compact && prefs.showsReading {
                     Rectangle()
-                        .fill(Palette.ink.opacity(0.055))
+                        .fill(chrome.progress)
                         .frame(width: span * tab.reading)
                         .animation(.easeOut(duration: 0.15), value: tab.reading)
                 }
@@ -553,19 +557,19 @@ private struct TabPill: View {
             .matchedGeometryEffect(id: "live", in: pill)
         } else if hovering {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Palette.hover)
+                .fill(chrome.hover)
         } else if pinned {
             // A letter with nothing behind it reads as debris. A pinned tab
             // keeps a faint ground of its own so the block of them reads as
             // one thing.
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Palette.wash.opacity(0.55))
+                .fill(chrome.wash.opacity(0.55))
         }
     }
 
     private var colour: Color {
-        if live { return Palette.ink }
-        return hovering ? Palette.ink.opacity(0.7) : Palette.muted
+        if live { return chrome.ink }
+        return hovering ? chrome.ink.opacity(0.7) : chrome.muted
     }
 }
 
@@ -854,6 +858,7 @@ struct MiddleClick: NSViewRepresentable {
 /// An almost-closed ring, turning — the same one the canvas app uses, small
 /// enough to sit inside a tab without becoming the loudest thing in it.
 struct Ring: View {
+    @Environment(\.chromeForeground) private var chrome: ChromeForeground
     var size: CGFloat = 10
     @State private var angle: Double = 0
 
@@ -861,7 +866,7 @@ struct Ring: View {
         Circle()
             .trim(from: 0, to: 0.78)
             .stroke(
-                Palette.muted.opacity(0.7),
+                chrome.muted.opacity(0.7),
                 style: StrokeStyle(lineWidth: 1.4, lineCap: .round)
             )
             .frame(width: size, height: size)

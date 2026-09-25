@@ -10,6 +10,7 @@ struct SideBar: View {
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
+    @ObservedObject private var legibility = ChromeLegibility.shared
 
     @Namespace private var pill
 
@@ -36,6 +37,7 @@ struct SideBar: View {
 
     var body: some View {
         let _ = paletteUpdates.revision
+        let chrome = legibility.foreground(for: browser, isSidebar: true)
         ZStack(alignment: .top) {
             // Not under the card for a new space: it isn't made of views that
             // would take the click first.
@@ -88,7 +90,8 @@ struct SideBar: View {
         // Rows on their way to or from another space stay in the column.
         .clipped()
         .onAppear { SpaceSwipe.shared.start(for: browser) }
-        .background(landing ? Palette.hover : Palette.ground)
+        .background(ChromeBackgroundHost(browser: browser, isSidebar: true, landing: landing))
+        .environment(\.chromeForeground, chrome)
         .overlay(alignment: .trailing) {
             Rectangle().fill(Palette.hairline).frame(width: 1)
         }
@@ -489,6 +492,7 @@ private struct PinGrid: Layout {
 /// its row asks for, but never taller than the classic square, so a row with
 /// room to spare turns into a wide, short button rather than a bigger icon.
 private struct PinSquare: View {
+    @Environment(\.chromeForeground) private var chrome: ChromeForeground
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
     @ObservedObject var tab: Tab
@@ -513,7 +517,7 @@ private struct PinSquare: View {
             } else {
                 Text(tab.pin ?? "")
                     .font(.system(size: scale * 12 / 34, weight: .medium))
-                    .foregroundStyle((live ? Palette.ink : Palette.muted).opacity(tab.asleep ? 0.45 : 1))
+                    .foregroundStyle((live ? chrome.ink : chrome.muted).opacity(tab.asleep ? 0.45 : 1))
             }
         }
         .frame(width: scale * 16 / 34, height: scale * 16 / 34)
@@ -521,11 +525,11 @@ private struct PinSquare: View {
         .background {
             if live {
                 RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
-                    .fill(Palette.wash)
+                    .fill(chrome.wash)
                     .matchedGeometryEffect(id: "live", in: pill)
             } else {
                 RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
-                    .fill(hovering ? Palette.hover : Palette.wash.opacity(0.55))
+                    .fill(hovering ? chrome.hover : chrome.wash.opacity(0.55))
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous))
@@ -544,6 +548,7 @@ private struct PinSquare: View {
 
 /// One tab, as a line in the column.
 private struct SideRow: View {
+    @Environment(\.chromeForeground) private var chrome: ChromeForeground
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
     @ObservedObject var tab: Tab
@@ -632,9 +637,9 @@ private struct SideRow: View {
                     if hovering {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(Palette.muted)
+                            .foregroundStyle(chrome.muted)
                             .frame(width: 15, height: 15)
-                            .background(Palette.ink.opacity(0.07), in: Circle())
+                            .background(chrome.ink.opacity(0.07), in: Circle())
                             .transition(.opacity)
                     }
                 }
@@ -673,11 +678,11 @@ private struct SideRow: View {
     private var ground: some View {
         if live {
             ZStack(alignment: .leading) {
-                Rectangle().fill(Palette.wash)
+                Rectangle().fill(chrome.wash)
                 if prefs.showsReading {
                     GeometryReader { geo in
                         Rectangle()
-                            .fill(Palette.ink.opacity(0.055))
+                            .fill(chrome.progress)
                             .frame(width: geo.size.width * tab.reading)
                             .animation(.easeOut(duration: 0.15), value: tab.reading)
                     }
@@ -687,18 +692,19 @@ private struct SideRow: View {
             .matchedGeometryEffect(id: "live", in: pill)
         } else if hovering {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Palette.hover)
+                .fill(chrome.hover)
         }
     }
 
     private var colour: Color {
-        if live { return Palette.ink }
-        return hovering ? Palette.ink.opacity(0.7) : Palette.muted
+        if live { return chrome.ink }
+        return hovering ? chrome.ink.opacity(0.7) : chrome.muted
     }
 }
 
 /// A row that is an action rather than a page. Quiet until the pointer is on it.
 struct Quiet: View {
+    @Environment(\.chromeForeground) private var chrome: ChromeForeground
     let icon: String
     let title: String
     var height: CGFloat = 28
@@ -716,13 +722,13 @@ struct Quiet: View {
                     .font(.system(size: 12.5))
                 Spacer(minLength: 0)
             }
-            .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : Palette.faint)
+            .foregroundStyle(hovering ? chrome.ink.opacity(0.7) : chrome.faint)
             .padding(.leading, 10)
             .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(hovering ? Palette.hover : .clear)
+                    .fill(hovering ? chrome.hover : .clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
@@ -737,6 +743,7 @@ struct Quiet: View {
 /// it was before it could be pressed, with the cross's faint disc behind
 /// it only while the pointer is on it.
 struct Speaker: View {
+    @Environment(\.chromeForeground) private var chrome: ChromeForeground
     @ObservedObject var tab: Tab
 
     @State private var hovering = false
@@ -745,9 +752,9 @@ struct Speaker: View {
         Button(action: tab.toggleMute) {
             Image(systemName: tab.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .font(.system(size: 8))
-                .foregroundStyle(Palette.muted)
+                .foregroundStyle(chrome.muted)
                 .frame(width: 15, height: 15)
-                .background(Palette.ink.opacity(hovering ? 0.07 : 0), in: Circle())
+                .background(chrome.ink.opacity(hovering ? 0.07 : 0), in: Circle())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -759,6 +766,7 @@ struct Speaker: View {
 
 /// A small square holding one symbol. Lit when what it opens is open.
 struct Door: View {
+    @Environment(\.chromeForeground) private var chrome: ChromeForeground
     let icon: String
     var on = false
     var help = ""
@@ -770,11 +778,11 @@ struct Door: View {
         Button(action: act) {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(on ? Palette.ink : (hovering ? Palette.ink.opacity(0.7) : Palette.muted))
+                .foregroundStyle(on ? chrome.ink : (hovering ? chrome.ink.opacity(0.7) : chrome.muted))
                 .frame(width: 26, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(on ? Palette.wash : (hovering ? Palette.hover : .clear))
+                        .fill(on ? chrome.wash : (hovering ? chrome.hover : .clear))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }

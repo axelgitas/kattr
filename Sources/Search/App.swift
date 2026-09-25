@@ -277,7 +277,11 @@ struct ContentView: View {
             let _ = paletteUpdates.revision
             // Black while a page has the screen, so the frame of our own window
             // that survives the transition is not a white band across the top.
+            // Padded and offset to match stage so browser chrome remains clear for behind-window glass.
             (browser.active?.immersed == true ? Color.black : Palette.ground)
+                .padding(.leading, roomed.width)
+                .padding(.top, roomed.height)
+                .offset(x: chrome.width - roomed.width, y: chrome.height - roomed.height)
                 .id("canvas-ground-\(paletteUpdates.revision)")
 
             // One stage, always. It starts beside the column and under the
@@ -508,7 +512,8 @@ struct ContentView: View {
             }
             .onReceive(paletteUpdates.$revision) { _ in
                 let targetWindow = window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }) ?? NSApp.mainWindow
-                targetWindow?.backgroundColor = Palette.NS.ground
+                targetWindow?.isOpaque = false
+                targetWindow?.backgroundColor = .clear
                 targetWindow?.contentView?.needsDisplay = true
             }
             .onChange(of: browser.fieldShowing) { _, showing in
@@ -715,7 +720,9 @@ struct ContentView: View {
         // window only has to be the ground colour that goes with it.
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.backgroundColor = Palette.NS.ground
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = true
         // The strip does the dragging, so the page underneath can't be grabbed
         // by accident while selecting text.
         window.isMovableByWindowBackground = false

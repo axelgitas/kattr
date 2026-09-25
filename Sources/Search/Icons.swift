@@ -260,6 +260,7 @@ final class Favicons {
 /// What stands for a page when there is no room for its title: the site's
 /// icon if there is one, and a letter in a faint square until there is.
 struct Mark: View {
+    @Environment(\.chromeForeground) private var chrome: ChromeForeground
     let icon: NSImage?
     let letter: String
     var size: CGFloat = 16
@@ -276,11 +277,11 @@ struct Mark: View {
             } else {
                 Text(letter)
                     .font(.system(size: size * 0.56, weight: .medium))
-                    .foregroundStyle(Palette.muted)
+                    .foregroundStyle(chrome.muted)
                     .frame(width: size, height: size)
                     .background(
                         RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
-                            .fill(Palette.ink.opacity(0.06))
+                            .fill(chrome.ink.opacity(0.06))
                     )
             }
         }

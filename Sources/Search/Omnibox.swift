@@ -256,35 +256,6 @@ private struct Breath: NSViewRepresentable {
     }
 }
 
-/// A non-interactive NSVisualEffectView configured for in-window blending so that
-/// both SwiftUI content (blank-tab artwork) and AppKit content (WKWebView on ⌘L)
-/// softly show through with native macOS backdrop blur.
-private struct FrostedGlass: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .popover
-    var cornerRadius: CGFloat = 14
-
-    func makeNSView(context: Context) -> GlassView {
-        let view = GlassView()
-        view.material = material
-        view.blendingMode = .withinWindow
-        view.state = .active
-        view.wantsLayer = true
-        view.layer?.cornerRadius = cornerRadius
-        view.layer?.cornerCurve = .continuous
-        view.layer?.masksToBounds = true
-        return view
-    }
-
-    func updateNSView(_ view: GlassView, context: Context) {
-        view.material = material
-        view.layer?.cornerRadius = cornerRadius
-    }
-
-    final class GlassView: NSVisualEffectView {
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    }
-}
-
 /// The field itself, in AppKit.
 ///
 /// SwiftUI's TextField can hold a string and nothing else, and the whole point

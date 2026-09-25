@@ -512,3 +512,42 @@ struct Shake: GeometryEffect {
         )
     }
 }
+
+/// A non-interactive NSVisualEffectView configured for in-window or behind-window blending so that
+/// underlying content softly shows through with native macOS backdrop blur.
+struct FrostedGlass: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .popover
+    var blendingMode: NSVisualEffectView.BlendingMode = .withinWindow
+    var cornerRadius: CGFloat = 0
+
+    func makeNSView(context: Context) -> GlassView {
+        let view = GlassView()
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        view.wantsLayer = true
+        if cornerRadius > 0 {
+            view.layer?.cornerRadius = cornerRadius
+            view.layer?.cornerCurve = .continuous
+            view.layer?.masksToBounds = true
+        }
+        return view
+    }
+
+    func updateNSView(_ view: GlassView, context: Context) {
+        view.material = material
+        view.blendingMode = blendingMode
+        view.state = .active
+        if cornerRadius > 0 {
+            view.layer?.cornerRadius = cornerRadius
+            view.layer?.masksToBounds = true
+        } else {
+            view.layer?.cornerRadius = 0
+            view.layer?.masksToBounds = false
+        }
+    }
+
+    final class GlassView: NSVisualEffectView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
