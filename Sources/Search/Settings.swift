@@ -21,7 +21,9 @@ struct SettingsPanel: View {
     @State private var chromeArtworkThumbnail: NSImage? = ChromeArtwork.current()
     @State private var useSeparateChromeArtwork: Bool = ChromeArtwork.overrideNewTabArtwork
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
-    @ObservedObject private var glassSettings = ChromeGlassSettings.shared
+    @ObservedObject private var surfaceSettings = BrowserSurfaceSettings.shared
+    @ObservedObject private var glassTintSettings = AppearanceGlassSettings.shared
+    @ObservedObject private var transparencySettings = AppearanceTransparencySettings.shared
 
     enum Page: String, CaseIterable, Identifiable {
         case general, tabs, extensions, passwords, downloads, privacy, about
@@ -197,41 +199,112 @@ struct SettingsPanel: View {
                         }
                     }
                     Rule()
-                    Line("Chrome Glass Tint", "Color tint layered over the frosted glass") {
+                    Line("Surface Transparency", "Transparency of the browser background surface") {
                         HStack(spacing: 8) {
                             Slider(
                                 value: Binding(
-                                    get: { glassSettings.tintOpacity },
-                                    set: { glassSettings.tintOpacity = $0 }
+                                    get: { surfaceSettings.surfaceTransparency },
+                                    set: { surfaceSettings.surfaceTransparency = $0 }
                                 ),
-                                in: ChromeGlassSettings.tintRange,
-                                step: ChromeGlassSettings.tintStep
+                                in: BrowserSurfaceSettings.transparencyRange,
+                                step: BrowserSurfaceSettings.transparencyStep
                             )
                             .frame(width: 90)
 
-                            Text("\(Int(round(glassSettings.tintOpacity * 100)))%")
+                            Text("\(Int(round(surfaceSettings.surfaceTransparency * 100)))%")
                                 .font(.system(size: 11.5, weight: .medium).monospacedDigit())
                                 .foregroundStyle(Palette.ink)
                                 .frame(width: 34, alignment: .trailing)
+
+                            ZStack(alignment: .trailing) {
+                                Pill("Reset") {
+                                    surfaceSettings.resetTransparency()
+                                }
+                                .fixedSize()
+                                .opacity(surfaceSettings.isTransparencyCustomized ? 1 : 0)
+                                .allowsHitTesting(surfaceSettings.isTransparencyCustomized)
+                            }
+                            .frame(width: 52, alignment: .trailing)
                         }
                     }
                     Rule()
-                    Line("Chrome Glass Strength", "Diffusion profile for the underlying frosted glass") {
+                    Line("Artwork Transparency", "Opacity of the artwork image and diffused atmosphere") {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: Binding(
+                                    get: { transparencySettings.artworkTransparency },
+                                    set: { transparencySettings.artworkTransparency = $0 }
+                                ),
+                                in: AppearanceTransparencySettings.range,
+                                step: AppearanceTransparencySettings.step
+                            )
+                            .frame(width: 90)
+
+                            Text("\(Int(round(transparencySettings.artworkTransparency * 100)))%")
+                                .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                                .foregroundStyle(Palette.ink)
+                                .frame(width: 34, alignment: .trailing)
+
+                            ZStack(alignment: .trailing) {
+                                Pill("Reset") {
+                                    transparencySettings.resetArtwork()
+                                }
+                                .fixedSize()
+                                .opacity(transparencySettings.isArtworkCustomized ? 1 : 0)
+                                .allowsHitTesting(transparencySettings.isArtworkCustomized)
+                            }
+                            .frame(width: 52, alignment: .trailing)
+                        }
+                    }
+                    Rule()
+                    Line("Glass Tint", "Color tint layered over the frosted glass and atmosphere") {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: Binding(
+                                    get: { glassTintSettings.tintOpacity },
+                                    set: { glassTintSettings.tintOpacity = $0 }
+                                ),
+                                in: AppearanceGlassSettings.tintRange,
+                                step: AppearanceGlassSettings.tintStep
+                            )
+                            .frame(width: 90)
+
+                            Text("\(Int(round(glassTintSettings.tintOpacity * 100)))%")
+                                .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                                .foregroundStyle(Palette.ink)
+                                .frame(width: 34, alignment: .trailing)
+
+                            ZStack(alignment: .trailing) {
+                                Pill("Reset") {
+                                    glassTintSettings.reset()
+                                }
+                                .fixedSize()
+                                .opacity(glassTintSettings.isCustomized ? 1 : 0)
+                                .allowsHitTesting(glassTintSettings.isCustomized)
+                            }
+                            .frame(width: 52, alignment: .trailing)
+                        }
+                    }
+                    Rule()
+                    Line("Blur Strength", "Diffusion profile for the underlying frosted glass") {
                         HStack(spacing: 8) {
                             Segmented(
-                                options: ChromeGlassStrength.allCases.map { ($0, $0.title) },
+                                options: BlurStrength.allCases.map { ($0, $0.title) },
                                 selection: Binding(
-                                    get: { glassSettings.strength },
-                                    set: { glassSettings.strength = $0 }
+                                    get: { surfaceSettings.blurStrength },
+                                    set: { surfaceSettings.blurStrength = $0 }
                                 )
                             )
 
-                            if glassSettings.isCustomized {
+                            ZStack(alignment: .trailing) {
                                 Pill("Reset") {
-                                    glassSettings.reset()
+                                    surfaceSettings.resetBlurStrength()
                                 }
                                 .fixedSize()
+                                .opacity(surfaceSettings.isBlurStrengthCustomized ? 1 : 0)
+                                .allowsHitTesting(surfaceSettings.isBlurStrengthCustomized)
                             }
+                            .frame(width: 52, alignment: .trailing)
                         }
                     }
                     Rule()

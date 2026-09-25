@@ -260,6 +260,7 @@ private final class CursorGroundView: NSView {
 struct ContentView: View {
     @ObservedObject var browser: Browser
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
+    @ObservedObject private var transparency = AppearanceTransparencySettings.shared
 
     @State private var keys: Any?
     @State private var window: NSWindow?
@@ -275,10 +276,25 @@ struct ContentView: View {
     private var window_: some View {
         ZStack(alignment: .topLeading) {
             let _ = paletteUpdates.revision
+            let isBlank = browser.active == nil || browser.active?.isBlank == true
+            let canvasOpacity: Double = {
+                if isBlank {
+                    // Blank tab / new tab: New Tab BrowserSurface manages the stage foundation.
+                    // Canvas-ground yields (opacity 0) so it does not obscure the BrowserSurface
+                    // or double-composite an opaque Palette.ground underneath it.
+                    return 0.0
+                } else {
+                    // Normal web pages stay 100% opaque.
+                    return 1.0
+                }
+            }()
+
             // Black while a page has the screen, so the frame of our own window
             // that survives the transition is not a white band across the top.
             // Padded and offset to match stage so browser chrome remains clear for behind-window glass.
             (browser.active?.immersed == true ? Color.black : Palette.ground)
+                .opacity(canvasOpacity)
+                .allowsHitTesting(false)
                 .padding(.leading, roomed.width)
                 .padding(.top, roomed.height)
                 .offset(x: chrome.width - roomed.width, y: chrome.height - roomed.height)
@@ -329,7 +345,7 @@ struct ContentView: View {
     @ViewBuilder
     private var stage: some View {
         if let tab = browser.active {
-            Page(tab: tab)
+            Page(tab: tab, isSidebar: sidebar)
                 .overlay {
                     if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus) }
                 }
@@ -347,7 +363,7 @@ struct ContentView: View {
                 }
                 .animation(Motion.quick, value: browser.suggesting)
         } else {
-            Palette.ground
+            BrowserSurfaceView(isSidebar: sidebar)
         }
     }
 

@@ -54,17 +54,21 @@ enum NewTabFade {
 }
 
 /// Optical atmospheric constants and parameters matching the New Tab page pipeline.
+@MainActor
 struct ArtworkAtmosphere {
     let isDark: Bool
     let washColor: Color
+    let tintMultiplier: Double
     let baseTopOpacity: Double
     let baseMidOpacity: Double
     let baseFloorOpacity: Double
     let ambientContinuationOpacity: Double
 
-    init(isDark: Bool, customWashColor: Color? = nil) {
+    init(isDark: Bool, customWashColor: Color? = nil, tintOpacity: Double? = nil) {
         self.isDark = isDark
         self.washColor = customWashColor ?? NewTabFade.washColor(isDark: isDark)
+        let resolvedTint = tintOpacity ?? AppearanceGlassSettings.shared.tintOpacity
+        self.tintMultiplier = max(0.0, resolvedTint / AppearanceGlassSettings.defaultTint)
         self.baseTopOpacity = isDark ? 0.30 : 0.18
         self.baseMidOpacity = isDark ? 0.22 : 0.13
         self.baseFloorOpacity = isDark ? 0.16 : 0.09
@@ -162,6 +166,7 @@ struct AtmosphericContinuationLayer: View {
                 .blur(radius: 54)
 
             NewTabFade.washGradient(washColor: atmosphere.washColor)
+                .opacity(atmosphere.tintMultiplier)
         }
         .frame(width: viewportWidth, height: viewportHeight, alignment: .top)
         .clipped()

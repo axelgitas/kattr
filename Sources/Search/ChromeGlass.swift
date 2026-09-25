@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// Discrete glass strength presets mapping to supported macOS NSVisualEffectView materials.
-enum ChromeGlassStrength: String, CaseIterable, Identifiable {
+/// Discrete blur strength presets mapping to supported macOS NSVisualEffectView materials.
+enum BlurStrength: String, CaseIterable, Identifiable {
     case subtle
     case regular
     case strong
@@ -31,56 +31,91 @@ enum ChromeGlassStrength: String, CaseIterable, Identifiable {
     }
 }
 
-/// Manages persistence, live change notifications, and resolution for Chrome FrostedGlass settings.
-@MainActor
-final class ChromeGlassSettings: ObservableObject {
-    static let shared = ChromeGlassSettings()
+typealias ChromeGlassStrength = BlurStrength
 
-    static let didChange = Notification.Name("SearchChromeGlassDidChange")
-    static let tintKey = "appearance.chrome.tintOpacity"
-    static let strengthKey = "appearance.chrome.glassStrength"
+/// Manages persistence, live change notifications, and resolution for global BrowserSurface settings.
+@MainActor
+final class BrowserSurfaceSettings: ObservableObject {
+    static let shared = BrowserSurfaceSettings()
+
+    static let didChange = Notification.Name("SearchBrowserSurfaceDidChange")
+
+    static let surfaceTransparencyKey = "appearance.surfaceTransparency"
+    static let legacyBackgroundTransparencyKey = "appearance.backgroundTransparency"
+
+    static let blurStrengthKey = "appearance.blurStrength"
+    static let legacyStrengthKey = "appearance.chrome.glassStrength"
+
     static let foundationOpacityKey = "appearance.chrome.artworkFoundationOpacity"
 
-    static let defaultTint: Double = 0.35
-    static let defaultStrength: ChromeGlassStrength = .regular
+    static let defaultTransparency: Double = 0.0
+    static let defaultBlurStrength: BlurStrength = .regular
     static let defaultArtworkFoundationOpacity: Double = 0.90
 
-    /// Safe range for the tint overlay slider.
-    static let tintRange: ClosedRange<Double> = 0.10...1.00
-    static let tintStep: Double = 0.05
+    static let transparencyRange: ClosedRange<Double> = 0.0...1.0
+    static let transparencyStep: Double = 0.05
+
+    /// Forwarders for backwards compatibility during migration
+    static var tintRange: ClosedRange<Double> { AppearanceGlassSettings.tintRange }
+    static var tintStep: Double { AppearanceGlassSettings.tintStep }
+    static var defaultTint: Double { AppearanceGlassSettings.defaultTint }
 
     private init() {}
 
-    /// Effective tint opacity layered over FrostedGlass.
-    var tintOpacity: Double {
+    /// Global surface transparency (0.0 = fully present, 1.0 = maximally transparent).
+    var surfaceTransparency: Double {
         get {
-            if let val = Store.settings.object(forKey: Self.tintKey) as? Double {
-                return min(max(val, Self.tintRange.lowerBound), Self.tintRange.upperBound)
+            if let val = Store.settings.object(forKey: Self.surfaceTransparencyKey) as? Double {
+                return min(max(val, Self.transparencyRange.lowerBound), Self.transparencyRange.upperBound)
             }
-            return Self.defaultTint
+            if let val = Store.settings.object(forKey: Self.legacyBackgroundTransparencyKey) as? Double {
+                return min(max(val, Self.transparencyRange.lowerBound), Self.transparencyRange.upperBound)
+            }
+            return Self.defaultTransparency
         }
         set {
-            let clamped = min(max(newValue, Self.tintRange.lowerBound), Self.tintRange.upperBound)
-            Store.settings.set(clamped, forKey: Self.tintKey)
+            let clamped = min(max(newValue, Self.transparencyRange.lowerBound), Self.transparencyRange.upperBound)
+            Store.settings.set(clamped, forKey: Self.surfaceTransparencyKey)
             objectWillChange.send()
             NotificationCenter.default.post(name: Self.didChange, object: nil)
         }
     }
 
-    /// Discrete glass material preset.
-    var strength: ChromeGlassStrength {
+    /// Effective opacity of the complete BrowserSurface (1.0 = fully present, 0.0 = completely transparent).
+    var surfaceOpacity: Double {
+        max(0.0, min(1.0, 1.0 - surfaceTransparency))
+    }
+
+    /// Discrete blur strength preset.
+    var blurStrength: BlurStrength {
         get {
-            if let raw = Store.settings.string(forKey: Self.strengthKey),
-               let preset = ChromeGlassStrength(rawValue: raw) {
+            if let raw = Store.settings.string(forKey: Self.blurStrengthKey),
+               let preset = BlurStrength(rawValue: raw) {
                 return preset
             }
-            return Self.defaultStrength
+            if let raw = Store.settings.string(forKey: Self.legacyStrengthKey),
+               let preset = BlurStrength(rawValue: raw) {
+                return preset
+            }
+            return Self.defaultBlurStrength
         }
         set {
-            Store.settings.set(newValue.rawValue, forKey: Self.strengthKey)
+            Store.settings.set(newValue.rawValue, forKey: Self.blurStrengthKey)
             objectWillChange.send()
             NotificationCenter.default.post(name: Self.didChange, object: nil)
         }
+    }
+
+    /// Compatibility forwarder for strength
+    var strength: BlurStrength {
+        get { blurStrength }
+        set { blurStrength = newValue }
+    }
+
+    /// Effective tint opacity layered over FrostedGlass (delegates to global AppearanceGlassSettings).
+    var tintOpacity: Double {
+        get { AppearanceGlassSettings.shared.tintOpacity }
+        set { AppearanceGlassSettings.shared.tintOpacity = newValue }
     }
 
     /// High-density foundation opacity underneath artwork layers, anchoring the atmospheric fade.
@@ -99,25 +134,88 @@ final class ChromeGlassSettings: ObservableObject {
         }
     }
 
-    /// Whether any glass setting differs from the default.
+    /// Whether surface transparency differs from the default.
+    var isTransparencyCustomized: Bool {
+        if Store.settings.object(forKey: Self.surfaceTransparencyKey) != nil {
+            return surfaceTransparency > 0.001
+        }
+        if Store.settings.object(forKey: Self.legacyBackgroundTransparencyKey) != nil {
+            return surfaceTransparency > 0.001
+        }
+        return false
+    }
+
+    /// Whether blur strength differs from the default.
+    var isBlurStrengthCustomized: Bool {
+        if Store.settings.object(forKey: Self.blurStrengthKey) != nil {
+            return blurStrength != Self.defaultBlurStrength
+        }
+        if Store.settings.object(forKey: Self.legacyStrengthKey) != nil {
+            return blurStrength != Self.defaultBlurStrength
+        }
+        return false
+    }
+
     var isCustomized: Bool {
-        Store.settings.object(forKey: Self.tintKey) != nil ||
-        Store.settings.object(forKey: Self.strengthKey) != nil ||
-        Store.settings.object(forKey: Self.foundationOpacityKey) != nil
+        isBlurStrengthCustomized
     }
 
     /// Resolves the NSVisualEffectView material for the given container based on the active strength.
     func material(isSidebar: Bool) -> NSVisualEffectView.Material {
-        strength.material(isSidebar: isSidebar)
+        blurStrength.material(isSidebar: isSidebar)
     }
 
-    /// Resets all chrome glass settings to default and notifies observers.
+    /// Resets surface transparency to default and notifies observers.
+    func resetTransparency() {
+        Store.settings.removeObject(forKey: Self.surfaceTransparencyKey)
+        Store.settings.removeObject(forKey: Self.legacyBackgroundTransparencyKey)
+        objectWillChange.send()
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+
+    /// Resets blur strength to default and notifies observers.
+    func resetBlurStrength() {
+        Store.settings.removeObject(forKey: Self.blurStrengthKey)
+        Store.settings.removeObject(forKey: Self.legacyStrengthKey)
+        objectWillChange.send()
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+
+    /// Resets settings to default and notifies observers.
     func reset() {
-        Store.settings.removeObject(forKey: Self.tintKey)
-        Store.settings.removeObject(forKey: Self.strengthKey)
+        resetBlurStrength()
         Store.settings.removeObject(forKey: Self.foundationOpacityKey)
         objectWillChange.send()
         NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+}
+
+typealias ChromeGlassSettings = BrowserSurfaceSettings
+
+/// The decorative blurred and tinted browser surface.
+/// Combines native AppKit FrostedGlass with user Palette.ground coloration,
+/// treated as one visual material governed by surfaceOpacity = 1.0 - surfaceTransparency.
+struct BrowserSurfaceView: View {
+    let isSidebar: Bool
+    @ObservedObject private var surface = BrowserSurfaceSettings.shared
+    @ObservedObject private var glassTint = AppearanceGlassSettings.shared
+    @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
+
+    var body: some View {
+        let _ = paletteUpdates.revision
+        ZStack {
+            FrostedGlass(
+                material: surface.material(isSidebar: isSidebar),
+                blendingMode: .behindWindow,
+                cornerRadius: 0
+            )
+
+            Palette.ground
+                .opacity(glassTint.tintOpacity)
+        }
+        .opacity(surface.surfaceOpacity)
+        .contentShape(Rectangle())
+        .allowsHitTesting(false)
     }
 }
 

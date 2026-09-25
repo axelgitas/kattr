@@ -11,6 +11,7 @@ import WebKit
 /// what turns that into a redraw.
 struct Page: View {
     @ObservedObject var tab: Tab
+    var isSidebar: Bool = false
 
     var body: some View {
         ZStack {
@@ -24,7 +25,7 @@ struct Page: View {
             WebStage(page: tab.isBlank || tab.asleep || tab.floating ? nil : tab.web)
 
             if tab.isBlank {
-                NewTabBackground()
+                NewTabBackground(isSidebar: isSidebar)
             }
 
             if let cover = tab.cover {

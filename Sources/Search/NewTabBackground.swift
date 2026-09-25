@@ -9,7 +9,10 @@ import AppKit
 /// and softly feathered around the centered Omnibox so the artwork continues gently
 /// behind the field rather than forming a harsh cutout.
 struct NewTabBackground: View {
+    var isSidebar: Bool = false
     @Environment(\.colorScheme) private var colorScheme
+    @ObservedObject private var transparency = AppearanceTransparencySettings.shared
+    @ObservedObject private var glassTint = AppearanceGlassSettings.shared
     @State private var image: NSImage? = NewTabArtwork.current()
     @State private var ready = false
 
@@ -19,15 +22,28 @@ struct NewTabBackground: View {
 
     var body: some View {
         GeometryReader { proxy in
-            if let image {
-                artworkView(
-                    image: image,
-                    size: proxy.size,
-                    globalMinY: proxy.frame(in: .global).minY
-                )
-                .opacity(ready ? 1 : 0)
+            ZStack(alignment: .topLeading) {
+                // 1. NEW TAB BROWSER SURFACE
+                // Sits strictly at the bottom of the page stack, covering the entire stage area.
+                // Uses the identical material, Palette.ground coloration, and Surface Transparency as Chrome.
+                BrowserSurfaceView(isSidebar: isSidebar)
+                    .frame(width: proxy.size.width, height: proxy.size.height)
+
+                // 2. NEW TAB ARTWORK STACK
+                // Sits strictly above Browser Surface. Fades with artworkOpacity.
+                if let image {
+                    artworkView(
+                        image: image,
+                        size: proxy.size,
+                        globalMinY: proxy.frame(in: .global).minY
+                    )
+                    .opacity(ready ? 1 : 0)
+                }
             }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+            .clipped()
         }
+        .contentShape(Rectangle())
         .allowsHitTesting(false)
         .onAppear { loadArtwork() }
         .onReceive(NotificationCenter.default.publisher(for: NewTabArtwork.didChange)) { _ in
@@ -87,66 +103,63 @@ struct NewTabBackground: View {
                 height: max(omniboxOriginY + omniboxHeight, heroHeight) - (omniboxOriginY - clearance)
             )
 
-            let atmosphere = ArtworkAtmosphere(isDark: isDark)
+            let atmosphere = ArtworkAtmosphere(isDark: isDark, tintOpacity: glassTint.tintOpacity)
 
             ZStack(alignment: .topLeading) {
                 // 0. Base canvas foundation:
                 // Dark appearance anchors to pure black so that the artwork stains the canvas
-                // with deep, rich midnight hues (e.g. purple -> deep near-black purple,
-                // red -> deep burgundy, blue -> deep navy) without desaturating into
-                // Search's neutral gray (Palette.ground = 0.11).
+                // with deep, rich midnight hues without desaturating into Search's neutral gray.
                 // Light appearance anchors to Palette.ground (pure white) for a clean,
                 // readable, gently tinted paper canvas.
+                // Opacity is governed globally by BrowserSurfaceSettings.surfaceOpacity.
                 atmosphere.washColor
+                    .opacity(BrowserSurfaceSettings.shared.surfaceOpacity)
                     .frame(width: viewportWidth, height: viewportHeight)
 
-                // 1. Artwork-derived ambient base:
-                // Fullscreen diffused backdrop scaled slightly beyond viewport bounds so blur
-                // never exposes edges. Attenuated with a gradient mask that preserves a nonzero
-                // floor at the bottom, guaranteeing the artwork's dominant color survives
-                // all the way to the bottom of the canvas.
-                AtmosphericBaseLayer(
-                    image: image,
-                    atmosphere: atmosphere,
-                    viewportWidth: viewportWidth,
-                    viewportHeight: viewportHeight
-                )
+                // The complete image-based artwork & atmosphere stack (layers 1, 2, 3):
+                // Fades together as a coherent artwork surface governed by artworkOpacity.
+                ZStack(alignment: .topLeading) {
+                    // 1. Artwork-derived ambient base:
+                    AtmosphericBaseLayer(
+                        image: image,
+                        atmosphere: atmosphere,
+                        viewportWidth: viewportWidth,
+                        viewportHeight: viewportHeight
+                    )
 
-                // 2. Ambient continuation layer:
-                // Reuses the exact same scale and center coordinates as the hero so there is
-                // zero spatial displacement or double-image around the hero transition line.
-                // Diffused with blur and darkened with a wash gradient so that artwork color
-                // continues naturally around and below heroHeight.
-                AtmosphericContinuationLayer(
-                    image: image,
-                    atmosphere: atmosphere,
-                    viewportWidth: viewportWidth,
-                    viewportHeight: viewportHeight,
-                    heroHeight: heroHeight
-                )
+                    // 2. Ambient continuation layer:
+                    AtmosphericContinuationLayer(
+                        image: image,
+                        atmosphere: atmosphere,
+                        viewportWidth: viewportWidth,
+                        viewportHeight: viewportHeight,
+                        heroHeight: heroHeight
+                    )
 
-                // 3. Main sharp hero layer with feathered omnibox cutout and top-to-bottom fade:
-                Image(nsImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: viewportWidth, height: heroHeight, alignment: .center)
-                    .clipped()
-                    .mask {
-                        // Full-height progressive fade into the background, combined with
-                        // a feathered 50% contrast underlay cutout around the omnibox.
-                        NewTabFade.heroBottomMask()
+                    // 3. Main sharp hero layer with feathered omnibox cutout and top-to-bottom fade:
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: viewportWidth, height: heroHeight, alignment: .center)
+                        .clipped()
                         .mask {
-                            ZStack {
-                                Color.white
+                            // Full-height progressive fade into the background, combined with
+                            // a feathered 50% contrast underlay cutout around the omnibox.
+                            NewTabFade.heroBottomMask()
+                            .mask {
+                                ZStack {
+                                    Color.white
 
-                                CutoutMaskShape(cutoutRect: clearedRect, cornerRadius: cornerRadius)
-                                    .fill(Color.black.opacity(0.5))
-                                    .blur(radius: feather / 2)
+                                    CutoutMaskShape(cutoutRect: clearedRect, cornerRadius: cornerRadius)
+                                        .fill(Color.black.opacity(0.5))
+                                        .blur(radius: feather / 2)
+                                }
+                                .compositingGroup()
+                                .luminanceToAlpha()
                             }
-                            .compositingGroup()
-                            .luminanceToAlpha()
                         }
-                    }
+                }
+                .opacity(transparency.artworkOpacity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
