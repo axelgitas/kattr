@@ -142,6 +142,8 @@ final class ChromeLegibility: ObservableObject {
 
     private var previousTopStripDecision: Bool?
     private var previousSidebarDecision: Bool?
+    private var previousTopStripScheme: ColorScheme?
+    private var previousSidebarScheme: ColorScheme?
 
     private var lastLoggedTopStrip: String = ""
     private var lastLoggedSidebar: String = ""
@@ -154,15 +156,19 @@ final class ChromeLegibility: ObservableObject {
     }
 
     @objc private func invalidate() {
+        previousTopStripDecision = nil
+        previousSidebarDecision = nil
+        previousTopStripScheme = nil
+        previousSidebarScheme = nil
         objectWillChange.send()
     }
 
-    func foreground(for browser: Browser, isSidebar: Bool) -> ChromeForeground {
-        let isDark = resolveIsDarkForeground(for: browser, isSidebar: isSidebar)
+    func foreground(for browser: Browser, isSidebar: Bool, colorScheme: ColorScheme? = nil) -> ChromeForeground {
+        let isDark = resolveIsDarkForeground(for: browser, isSidebar: isSidebar, colorScheme: colorScheme)
         return isDark ? .dark : .light
     }
 
-    func resolveIsDarkForeground(for browser: Browser, isSidebar: Bool) -> Bool {
+    func resolveIsDarkForeground(for browser: Browser, isSidebar: Bool, colorScheme: ColorScheme? = nil) -> Bool {
         let tab = browser.active
         let isBlank = tab?.isBlank ?? true
 
@@ -194,7 +200,9 @@ final class ChromeLegibility: ObservableObject {
         }
 
         let isSystemDark: Bool
-        if let appearance = NSApp?.effectiveAppearance {
+        if let colorScheme {
+            isSystemDark = (colorScheme == .dark)
+        } else if let appearance = NSApp?.effectiveAppearance {
             isSystemDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         } else {
             isSystemDark = false
@@ -204,7 +212,8 @@ final class ChromeLegibility: ObservableObject {
             ? (0.16, 0.16, 0.16)
             : (0.92, 0.92, 0.92)
 
-        let isShowingArtwork = isBlank && artworkImage != nil
+        let useSeparate = overrideArtwork && chromeImage != nil
+        let isShowingArtwork = useSeparate ? (artworkImage != nil) : (isBlank && artworkImage != nil)
         let alphaArt: CGFloat = isShowingArtwork ? 0.85 : 0.0
 
         let sampledArtRGB: (r: CGFloat, g: CGFloat, b: CGFloat)
@@ -222,7 +231,8 @@ final class ChromeLegibility: ObservableObject {
         )
 
         // Ground color
-        let groundNS = Palette.NS.ground.usingColorSpace(.sRGB) ?? (isSystemDark ? NSColor(white: 0.11, alpha: 1) : NSColor.white)
+        let groundColor = isSystemDark ? AppearanceBackground.currentDark : AppearanceBackground.currentLight
+        let groundNS = groundColor.usingColorSpace(.sRGB) ?? (isSystemDark ? NSColor(white: 0.11, alpha: 1) : NSColor.white)
         let groundRGB = (r: groundNS.redComponent, g: groundNS.greenComponent, b: groundNS.blueComponent)
         let washRGB = isSystemDark ? (r: CGFloat(0), g: CGFloat(0), b: CGFloat(0)) : groundRGB
 
@@ -259,6 +269,19 @@ final class ChromeLegibility: ObservableObject {
 
         let effectiveLuminance = 0.2126 * linearize(cFinal.r) + 0.7152 * linearize(cFinal.g) + 0.0722 * linearize(cFinal.b)
 
+        // Reset hysteresis decision if appearance/colorScheme changed
+        if isSidebar {
+            if let colorScheme, colorScheme != previousSidebarScheme {
+                previousSidebarDecision = nil
+                previousSidebarScheme = colorScheme
+            }
+        } else {
+            if let colorScheme, colorScheme != previousTopStripScheme {
+                previousTopStripDecision = nil
+                previousTopStripScheme = colorScheme
+            }
+        }
+
         let prevDecision = isSidebar ? previousSidebarDecision : previousTopStripDecision
         let isDarkForeground: Bool
 
@@ -270,7 +293,7 @@ final class ChromeLegibility: ObservableObject {
             // Retain previous decision in deadband
             isDarkForeground = prev
         } else {
-            // Initial fallback
+            // Initial fallback / scheme transition fallback
             isDarkForeground = effectiveLuminance >= 0.36
         }
 
@@ -463,9 +486,11 @@ private struct ChromeBackground: View {
     let landing: Bool
 
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let _ = paletteUpdates.revision
+        let _ = colorScheme
         GeometryReader { geo in
             ZStack {
                 // 1. PERMANENT FROSTED GLASS
@@ -527,7 +552,7 @@ private struct ChromeArtworkLayer: View {
 
     /// Grounding overlay color matching the foundation and bottom fade of NewTabBackground.
     private var washColor: Color {
-        isDark ? Color.black : Palette.ground
+        NewTabFade.washColor(isDark: isDark)
     }
 
     private var hasArtwork: Bool {
@@ -545,7 +570,14 @@ private struct ChromeArtworkLayer: View {
     }
 
     private var isShowingArtwork: Bool {
-        tab.isBlank && hasArtwork
+        let useSeparate = overrideArtwork && chromeImage != nil
+        if useSeparate {
+            // Persistent across all tabs (blank and loaded)
+            return true
+        } else {
+            // Contextual New Tab artwork (horizontal strip only)
+            return tab.isBlank && hasArtwork
+        }
     }
 
     var body: some View {
@@ -597,19 +629,20 @@ private struct ChromeArtworkLayer: View {
     private func artworkContent(size: CGSize) -> some View {
         if isSidebar {
             // In sidebar mode, only separate chrome artwork is rendered when enabled.
+            // Uses a long top-to-bottom dissolve matching NewTabFade semantics.
             if let image = chromeImage {
                 ZStack {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(width: size.width, height: size.height, alignment: .center)
+                        .frame(width: size.width, height: size.height, alignment: .top)
                         .clipped()
 
-                    // Apply readability overlay/wash for sidebar
-                    sidebarReadabilityWash(size: size)
+                    // Apply NewTab-style vertical atmospheric wash overlay melting into washColor towards the bottom
+                    NewTabFade.washGradient(washColor: washColor)
                 }
                 .mask {
-                    sidebarArtworkMask(size: size)
+                    NewTabFade.heroBottomMask()
                 }
                 .frame(width: size.width, height: size.height)
                 .clipped()
@@ -656,50 +689,17 @@ private struct ChromeArtworkLayer: View {
     }
 
     /// Readability wash overlay for the horizontal top tab strip.
+    /// Represents the top slice of the New Tab fade: artwork opacity stays high across the strip,
+    /// with the same NewTabFade washColor subtly increasing vertically toward the bottom.
     @ViewBuilder
     private func topStripReadabilityWash(size: CGSize) -> some View {
         LinearGradient(
             stops: [
-                .init(color: washColor.opacity(isDark ? 0.35 : 0.60), location: 0.0),
-                .init(color: washColor.opacity(isDark ? 0.20 : 0.40), location: 1.0)
+                .init(color: washColor.opacity(isDark ? 0.18 : 0.30), location: 0.0),
+                .init(color: washColor.opacity(isDark ? 0.32 : 0.50), location: 1.0)
             ],
             startPoint: .top,
             endPoint: .bottom
-        )
-    }
-
-    /// Broad left-to-right readability wash overlay in sidebar mode.
-    /// Provides a calm, grounded, contrast-rich area on the left for tab text and controls,
-    /// gently dissolving away toward the right so artwork detail remains crisp near the page boundary.
-    @ViewBuilder
-    private func sidebarReadabilityWash(size: CGSize) -> some View {
-        LinearGradient(
-            stops: [
-                .init(color: washColor.opacity(isDark ? 0.78 : 0.72), location: 0.0),
-                .init(color: washColor.opacity(isDark ? 0.65 : 0.58), location: 0.25),
-                .init(color: washColor.opacity(isDark ? 0.35 : 0.28), location: 0.55),
-                .init(color: washColor.opacity(0.0), location: 0.82),
-                .init(color: .clear, location: 1.0)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
-
-    /// Attenuation mask softening high-contrast artwork highlights on the far-left
-    /// while preserving 100% full artwork detail near the page boundary on the right.
-    @ViewBuilder
-    private func sidebarArtworkMask(size: CGSize) -> some View {
-        LinearGradient(
-            stops: [
-                .init(color: .white.opacity(0.35), location: 0.0),
-                .init(color: .white.opacity(0.60), location: 0.30),
-                .init(color: .white.opacity(0.90), location: 0.65),
-                .init(color: .white, location: 0.85),
-                .init(color: .white, location: 1.0)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
         )
     }
 

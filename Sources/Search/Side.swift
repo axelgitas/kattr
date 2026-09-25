@@ -11,6 +11,7 @@ struct SideBar: View {
     @ObservedObject var prefs: Preferences
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
     @ObservedObject private var legibility = ChromeLegibility.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     @Namespace private var pill
 
@@ -37,7 +38,7 @@ struct SideBar: View {
 
     var body: some View {
         let _ = paletteUpdates.revision
-        let chrome = legibility.foreground(for: browser, isSidebar: true)
+        let chrome = legibility.foreground(for: browser, isSidebar: true, colorScheme: colorScheme)
         ZStack(alignment: .top) {
             // Not under the card for a new space: it isn't made of views that
             // would take the click first.

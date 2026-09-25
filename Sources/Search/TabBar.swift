@@ -7,6 +7,7 @@ struct TabBar: View {
     @ObservedObject var browser: Browser
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
     @ObservedObject private var legibility = ChromeLegibility.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     @Namespace private var pill
     /// The neighbouring spaces' own grey, apart from this one's.
@@ -23,7 +24,7 @@ struct TabBar: View {
 
     var body: some View {
         let _ = paletteUpdates.revision
-        let chrome = legibility.foreground(for: browser, isSidebar: false)
+        let chrome = legibility.foreground(for: browser, isSidebar: false, colorScheme: colorScheme)
         // A GeometryReader is only here to measure the width. Its content is
         // put in a stack of its own and told to fill it: left to itself a
         // reader pins whatever it holds to the top corner, which is the row

@@ -1,6 +1,39 @@
 import SwiftUI
 import AppKit
 
+/// Shared visual fade semantics connecting NewTabBackground and ChromeBackground.
+enum NewTabFade {
+    /// Semantic wash/ground destination color matching the New Tab canvas foundation.
+    /// In Dark mode, pure black preserves saturated midnight hues; in Light mode, Palette.ground
+    /// respects custom canvas tints (e.g. burgundy, navy, etc.).
+    static func washColor(isDark: Bool) -> Color {
+        isDark ? Color.black : Palette.ground
+    }
+
+    /// Full hero top-to-bottom dissolve mask (white at top, clear at bottom).
+    static func heroBottomMask() -> LinearGradient {
+        LinearGradient(
+            colors: [.white, .clear],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// Atmospheric wash gradient melting into washColor towards the bottom.
+    static func washGradient(washColor: Color) -> LinearGradient {
+        LinearGradient(
+            stops: [
+                .init(color: .clear, location: 0.0),
+                .init(color: washColor.opacity(0.30), location: 0.45),
+                .init(color: washColor.opacity(0.75), location: 0.8),
+                .init(color: washColor, location: 1.0)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
 /// Zeron-inspired artwork treatment for Search's blank / new-tab page.
 ///
 /// Occupies the upper portion of the page viewport (~72% height, capped at 760pt),
@@ -91,7 +124,7 @@ struct NewTabBackground: View {
             let fittedWidth = image.size.width * scale
             let fittedHeight = image.size.height * scale
 
-            let washColor = isDark ? Color.black : Palette.ground
+            let washColor = NewTabFade.washColor(isDark: isDark)
             let baseTopOpacity: Double = isDark ? 0.30 : 0.18
             let baseMidOpacity: Double = isDark ? 0.22 : 0.13
             let baseFloorOpacity: Double = isDark ? 0.16 : 0.09
@@ -146,16 +179,7 @@ struct NewTabBackground: View {
                         .position(x: viewportWidth / 2, y: heroHeight / 2)
                         .blur(radius: 54)
 
-                    LinearGradient(
-                        stops: [
-                            .init(color: .clear, location: 0.0),
-                            .init(color: washColor.opacity(0.30), location: 0.45),
-                            .init(color: washColor.opacity(0.75), location: 0.8),
-                            .init(color: washColor, location: 1.0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
+                    NewTabFade.washGradient(washColor: washColor)
                 }
                 .frame(width: viewportWidth, height: viewportHeight, alignment: .top)
                 .clipped()
@@ -182,11 +206,7 @@ struct NewTabBackground: View {
                     .mask {
                         // Full-height progressive fade into the background, combined with
                         // a feathered 50% contrast underlay cutout around the omnibox.
-                        LinearGradient(
-                            colors: [.white, .clear],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
+                        NewTabFade.heroBottomMask()
                         .mask {
                             ZStack {
                                 Color.white

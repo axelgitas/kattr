@@ -191,7 +191,7 @@ struct SettingsPanel: View {
                     }
                     if chromeArtworkURL != nil {
                         Rule()
-                        Line("Use Separate Chrome Artwork", "Show this artwork in the chrome. When off, the sidebar shows only frosted glass and background tint with no artwork.") {
+                        Line("Use Separate Chrome Artwork", "Use this artwork for browser chrome on every tab. When off, the sidebar shows only frosted glass and background tint.") {
                             Switch(on: $useSeparateChromeArtwork)
                         }
                     }
