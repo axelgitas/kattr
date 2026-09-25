@@ -17,6 +17,7 @@ struct SettingsPanel: View {
     @State private var page: Page = Page(rawValue: Store.settings.string(forKey: "settings.page") ?? "") ?? .general
     @State private var artworkURL: URL? = NewTabArtwork.imageURL
     @State private var artworkThumbnail: NSImage? = NewTabArtwork.current()
+    @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
 
     enum Page: String, CaseIterable, Identifiable {
         case general, tabs, extensions, passwords, downloads, privacy, about
@@ -50,6 +51,7 @@ struct SettingsPanel: View {
     private static let height: CGFloat = 500
 
     var body: some View {
+        let _ = paletteUpdates.revision
         HStack(spacing: 0) {
             pages
             Rectangle().fill(Palette.hairline).frame(width: 1)
@@ -64,7 +66,9 @@ struct SettingsPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.16), radius: 34, y: 12)
         .onChange(of: page) { _, page in Store.settings.set(page.rawValue, forKey: "settings.page") }
-        .onAppear { updateArtworkState() }
+        .onAppear {
+            updateArtworkState()
+        }
         .onReceive(NotificationCenter.default.publisher(for: NewTabArtwork.didChange)) { _ in
             updateArtworkState()
         }
@@ -170,6 +174,34 @@ struct SettingsPanel: View {
                     Rule()
                     Line("New Tab Background", artworkDetail) {
                         artworkControls
+                    }
+                    Rule()
+                    Line("Light background", "Canvas color in light mode") {
+                        HStack(spacing: 8) {
+                            ColorPicker("", selection: lightBinding, supportsOpacity: false)
+                                .labelsHidden()
+
+                            if AppearanceBackground.customLight != nil {
+                                Pill("Reset") {
+                                    AppearanceBackground.resetLight()
+                                }
+                                .fixedSize()
+                            }
+                        }
+                    }
+                    Rule()
+                    Line("Dark background", "Canvas color in dark mode") {
+                        HStack(spacing: 8) {
+                            ColorPicker("", selection: darkBinding, supportsOpacity: false)
+                                .labelsHidden()
+
+                            if AppearanceBackground.customDark != nil {
+                                Pill("Reset") {
+                                    AppearanceBackground.resetDark()
+                                }
+                                .fixedSize()
+                            }
+                        }
                     }
                 }
             }
@@ -329,6 +361,30 @@ struct SettingsPanel: View {
         } else {
             artworkThumbnail = nil
         }
+    }
+
+    private var lightBinding: Binding<Color> {
+        Binding(
+            get: {
+                let _ = paletteUpdates.revision
+                return Color(nsColor: AppearanceBackground.currentLight)
+            },
+            set: { newColor in
+                AppearanceBackground.setLight(newColor)
+            }
+        )
+    }
+
+    private var darkBinding: Binding<Color> {
+        Binding(
+            get: {
+                let _ = paletteUpdates.revision
+                return Color(nsColor: AppearanceBackground.currentDark)
+            },
+            set: { newColor in
+                AppearanceBackground.setDark(newColor)
+            }
+        )
     }
 
     // MARK: - tabs

@@ -5,6 +5,7 @@ import SwiftUI
 /// of one and into the other.
 struct TabBar: View {
     @ObservedObject var browser: Browser
+    @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
 
     @Namespace private var pill
     /// The neighbouring spaces' own grey, apart from this one's.
@@ -20,6 +21,7 @@ struct TabBar: View {
     @State private var doors: CGFloat = 0
 
     var body: some View {
+        let _ = paletteUpdates.revision
         // A GeometryReader is only here to measure the width. Its content is
         // put in a stack of its own and told to fill it: left to itself a
         // reader pins whatever it holds to the top corner, which is the row

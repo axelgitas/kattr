@@ -10,14 +10,25 @@ import AppKit
 // takes its appearance from the app, and the app from Settings › Appearance:
 // light, dark, or whatever the Mac is doing. Nothing else in the code knows
 // which it is.
+/// Tiny MainActor notifier responsible solely for triggering SwiftUI invalidation when the palette changes.
+@MainActor
+final class AppearancePaletteUpdates: ObservableObject {
+    static let shared = AppearancePaletteUpdates()
+    @Published private(set) var revision: UInt = 0
+
+    func changed() {
+        revision &+= 1
+    }
+}
+
 enum Palette {
-    static let ground = Color(nsColor: NS.ground)
-    static let ink = Color(nsColor: NS.ink)             // neutral-900 · neutral-100
-    static let muted = Color(nsColor: NS.muted)         // neutral-500
-    static let faint = Color(nsColor: NS.faint)         // neutral-300 · neutral-700
-    static let hairline = Color(nsColor: NS.hairline)   // neutral-200 · neutral-800
-    static let wash = Color(nsColor: NS.wash)           // the live tab
-    static let hover = Color(nsColor: NS.hover)         // the one under the pointer
+    static var ground: Color { Color(nsColor: NS.ground) }
+    static var ink: Color { Color(nsColor: NS.ink) }
+    static var muted: Color { Color(nsColor: NS.muted) }
+    static var faint: Color { Color(nsColor: NS.faint) }
+    static var hairline: Color { Color(nsColor: NS.hairline) }
+    static var wash: Color { Color(nsColor: NS.wash) }
+    static var hover: Color { Color(nsColor: NS.hover) }
     /// The only two that aren't grey: a connection nobody can read on the
     /// way, and one anybody can (see SiteCard.swift).
     static let safe = Color(nsColor: NS.safe)           // green-700 · green-400
@@ -26,17 +37,23 @@ enum Palette {
     /// The same colours for the AppKit corners of the app — a text field's
     /// ink, a window's background — which want an NSColor and keep it.
     enum NS {
-        static let ground = pair(1.0, 0.11)
-        static let ink = pair(0.09, 0.93)
-        static let muted = pair(0.55, 0.58)
-        static let faint = pair(0.83, 0.32)
-        static let hairline = pair(0.91, 0.20)
-        static let wash = pair(0.937, 0.175)
-        static let hover = pair(0.965, 0.15)
+        static var ground: NSColor { dynamic { $0.ground } }
+        static var ink: NSColor { dynamic { $0.ink } }
+        static var muted: NSColor { dynamic { $0.muted } }
+        static var faint: NSColor { dynamic { $0.faint } }
+        static var hairline: NSColor { dynamic { $0.hairline } }
+        static var wash: NSColor { dynamic { $0.wash } }
+        static var hover: NSColor { dynamic { $0.hover } }
         /// The resting traffic lights, drawn by hand when the app is behind.
         static let resting = pair(0.80, 0.30)
         static let safe = tint(light: (0.08, 0.50, 0.24), dark: (0.29, 0.87, 0.50))
         static let unsafe = tint(light: (0.71, 0.33, 0.04), dark: (0.98, 0.75, 0.14))
+
+        private static func dynamic(_ select: @escaping (AppearanceBackground.NeutralRamp) -> NSColor) -> NSColor {
+            NSColor(name: nil) { appearance in
+                AppearanceBackground.resolved(select, for: appearance)
+            }
+        }
 
         private static func tint(light: (CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat)) -> NSColor {
             NSColor(name: nil) { appearance in
@@ -51,6 +68,256 @@ enum Palette {
                 return NSColor(white: dim ? dark : light, alpha: 1)
             }
         }
+    }
+}
+
+/// Centralized management and persistence for custom user-configured background colors
+/// and derivation of the adaptive neutral palette.
+enum AppearanceBackground {
+    static let didChange = Notification.Name("SearchAppearanceBackgroundDidChange")
+
+    static let lightKey = "appearance.background.light"
+    static let darkKey = "appearance.background.dark"
+
+    static let defaultLight = NSColor(white: 1.000, alpha: 1.0)
+    static let defaultDark = NSColor(white: 0.110, alpha: 1.0)
+
+    struct NeutralRamp {
+        let ground: NSColor
+        let ink: NSColor
+        let muted: NSColor
+        let faint: NSColor
+        let hairline: NSColor
+        let wash: NSColor
+        let hover: NSColor
+    }
+
+    static let defaultLightRamp = NeutralRamp(
+        ground: defaultLight,
+        ink: NSColor(white: 0.090, alpha: 1.0),
+        muted: NSColor(white: 0.550, alpha: 1.0),
+        faint: NSColor(white: 0.830, alpha: 1.0),
+        hairline: NSColor(white: 0.910, alpha: 1.0),
+        wash: NSColor(white: 0.937, alpha: 1.0),
+        hover: NSColor(white: 0.965, alpha: 1.0)
+    )
+
+    static let defaultDarkRamp = NeutralRamp(
+        ground: defaultDark,
+        ink: NSColor(white: 0.930, alpha: 1.0),
+        muted: NSColor(white: 0.580, alpha: 1.0),
+        faint: NSColor(white: 0.320, alpha: 1.0),
+        hairline: NSColor(white: 0.200, alpha: 1.0),
+        wash: NSColor(white: 0.175, alpha: 1.0),
+        hover: NSColor(white: 0.150, alpha: 1.0)
+    )
+
+    /// Derives an adaptive neutral ramp from a custom ground color using WCAG relative luminance
+    /// and component blending toward the highest contrast endpoint (black or white).
+    static func adaptiveRamp(from ground: NSColor) -> NeutralRamp {
+        guard let srgb = ground.usingColorSpace(.sRGB) else {
+            return defaultLightRamp
+        }
+        let rg = max(0, min(1, srgb.redComponent))
+        let gg = max(0, min(1, srgb.greenComponent))
+        let bg = max(0, min(1, srgb.blueComponent))
+
+        func linearize(_ c: CGFloat) -> CGFloat {
+            c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+
+        func luminance(r: CGFloat, g: CGFloat, b: CGFloat) -> CGFloat {
+            0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b)
+        }
+
+        func contrastRatio(_ l1: CGFloat, _ l2: CGFloat) -> CGFloat {
+            (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+        }
+
+        let lg = luminance(r: rg, g: gg, b: bg)
+        let contrastWhite = contrastRatio(1.0, lg)
+        let contrastBlack = contrastRatio(0.0, lg)
+
+        let toWhite = contrastWhite > contrastBlack
+        let endpoint: CGFloat = toWhite ? 1.0 : 0.0
+
+        func blend(t: CGFloat) -> (CGFloat, CGFloat, CGFloat) {
+            let rOut = (1.0 - t) * rg + t * endpoint
+            let gOut = (1.0 - t) * gg + t * endpoint
+            let bOut = (1.0 - t) * bg + t * endpoint
+            return (max(0, min(1, rOut)), max(0, min(1, gOut)), max(0, min(1, bOut)))
+        }
+
+        func makeColor(_ rgb: (CGFloat, CGFloat, CGFloat)) -> NSColor {
+            NSColor(srgbRed: rgb.0, green: rgb.1, blue: rgb.2, alpha: 1.0)
+        }
+
+        // Primary text: ink. Guarantee >= 4.5:1 contrast against ground.
+        var inkT: CGFloat = toWhite ? 0.92 : 0.91
+        var inkRGB = blend(t: inkT)
+        var inkLum = luminance(r: inkRGB.0, g: inkRGB.1, b: inkRGB.2)
+        while inkT < 1.0 && contrastRatio(inkLum, lg) < 4.5 {
+            inkT = min(1.0, inkT + 0.01)
+            inkRGB = blend(t: inkT)
+            inkLum = luminance(r: inkRGB.0, g: inkRGB.1, b: inkRGB.2)
+        }
+
+        // Secondary text: muted. Aim for >= 3.0:1 contrast, bounded below ink.
+        var mutedT: CGFloat = toWhite ? 0.53 : 0.45
+        let maxMutedT = max(mutedT, inkT - 0.15)
+        var mutedRGB = blend(t: mutedT)
+        var mutedLum = luminance(r: mutedRGB.0, g: mutedRGB.1, b: mutedRGB.2)
+        while mutedT < maxMutedT && contrastRatio(mutedLum, lg) < 3.0 {
+            mutedT = min(maxMutedT, mutedT + 0.01)
+            mutedRGB = blend(t: mutedT)
+            mutedLum = luminance(r: mutedRGB.0, g: mutedRGB.1, b: mutedRGB.2)
+        }
+
+        let faintT: CGFloat = toWhite ? 0.24 : 0.17
+        let hairlineT: CGFloat = toWhite ? 0.10 : 0.09
+        let washT: CGFloat = toWhite ? 0.073 : 0.063
+        let hoverT: CGFloat = toWhite ? 0.045 : 0.035
+
+        let faintRGB = blend(t: faintT)
+        let hairlineRGB = blend(t: hairlineT)
+        let washRGB = blend(t: washT)
+        let hoverRGB = blend(t: hoverT)
+
+        return NeutralRamp(
+            ground: ground,
+            ink: makeColor(inkRGB),
+            muted: makeColor(mutedRGB),
+            faint: makeColor(faintRGB),
+            hairline: makeColor(hairlineRGB),
+            wash: makeColor(washRGB),
+            hover: makeColor(hoverRGB)
+        )
+    }
+
+    static func ramp(forDark isDark: Bool) -> NeutralRamp {
+        if isDark {
+            if let custom = customDark {
+                return adaptiveRamp(from: custom)
+            } else {
+                return defaultDarkRamp
+            }
+        } else {
+            if let custom = customLight {
+                return adaptiveRamp(from: custom)
+            } else {
+                return defaultLightRamp
+            }
+        }
+    }
+
+    static func resolved(_ select: (NeutralRamp) -> NSColor, for appearance: NSAppearance) -> NSColor {
+        let dim = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let ramp = ramp(forDark: dim)
+        return select(ramp)
+    }
+
+    /// Resolves the effective background NSColor for the given appearance.
+    static func resolvedColor(for appearance: NSAppearance) -> NSColor {
+        resolved({ $0.ground }, for: appearance)
+    }
+
+    /// Parses a 6-digit hex string into an sRGB NSColor.
+    static func color(from hex: String) -> NSColor? {
+        var clean = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if clean.hasPrefix("#") { clean.removeFirst() }
+        guard clean.count == 6, let val = UInt64(clean, radix: 16) else { return nil }
+        let r = CGFloat((val >> 16) & 0xFF) / 255.0
+        let g = CGFloat((val >> 8) & 0xFF) / 255.0
+        let b = CGFloat(val & 0xFF) / 255.0
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1.0)
+    }
+
+    /// Converts an NSColor to a 6-digit sRGB hex string (#RRGGBB).
+    static func hex(from nsColor: NSColor) -> String? {
+        guard let srgb = nsColor.usingColorSpace(.sRGB) else { return nil }
+        let r = Int(round(max(0, min(1, srgb.redComponent)) * 255.0))
+        let g = Int(round(max(0, min(1, srgb.greenComponent)) * 255.0))
+        let b = Int(round(max(0, min(1, srgb.blueComponent)) * 255.0))
+        guard (0...255).contains(r), (0...255).contains(g), (0...255).contains(b) else { return nil }
+        return String(format: "#%02X%02X%02X", r, g, b)
+    }
+
+    /// Converts a SwiftUI Color to a 6-digit sRGB hex string (#RRGGBB).
+    static func hex(from color: Color) -> String? {
+        hex(from: NSColor(color))
+    }
+
+    /// Current custom NSColor for light mode, if configured and valid.
+    static var customLight: NSColor? {
+        guard let hex = Store.settings.string(forKey: lightKey) else { return nil }
+        return color(from: hex)
+    }
+
+    /// Current custom NSColor for dark mode, if configured and valid.
+    static var customDark: NSColor? {
+        guard let hex = Store.settings.string(forKey: darkKey) else { return nil }
+        return color(from: hex)
+    }
+
+    private static func notifyChanged() {
+        NotificationCenter.default.post(name: didChange, object: nil)
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                AppearancePaletteUpdates.shared.changed()
+            }
+        } else {
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    AppearancePaletteUpdates.shared.changed()
+                }
+            }
+        }
+    }
+
+    /// Sets the light background color from an NSColor or Color.
+    /// If conversion to sRGB fails, the previous setting is preserved.
+    static func setLight(_ color: NSColor) {
+        guard let hex = hex(from: color) else { return }
+        Store.settings.set(hex, forKey: lightKey)
+        notifyChanged()
+    }
+
+    static func setLight(_ color: Color) {
+        setLight(NSColor(color))
+    }
+
+    /// Sets the dark background color from an NSColor or Color.
+    /// If conversion to sRGB fails, the previous setting is preserved.
+    static func setDark(_ color: NSColor) {
+        guard let hex = hex(from: color) else { return }
+        Store.settings.set(hex, forKey: darkKey)
+        notifyChanged()
+    }
+
+    static func setDark(_ color: Color) {
+        setDark(NSColor(color))
+    }
+
+    /// Resets the light background color to default.
+    static func resetLight() {
+        Store.settings.removeObject(forKey: lightKey)
+        notifyChanged()
+    }
+
+    /// Resets the dark background color to default.
+    static func resetDark() {
+        Store.settings.removeObject(forKey: darkKey)
+        notifyChanged()
+    }
+
+    /// Current effective NSColor for light mode (custom or default).
+    static var currentLight: NSColor {
+        customLight ?? defaultLight
+    }
+
+    /// Current effective NSColor for dark mode (custom or default).
+    static var currentDark: NSColor {
+        customDark ?? defaultDark
     }
 }
 

@@ -259,6 +259,7 @@ private final class CursorGroundView: NSView {
 
 struct ContentView: View {
     @ObservedObject var browser: Browser
+    @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
 
     @State private var keys: Any?
     @State private var window: NSWindow?
@@ -273,9 +274,11 @@ struct ContentView: View {
     /// there is one.
     private var window_: some View {
         ZStack(alignment: .topLeading) {
+            let _ = paletteUpdates.revision
             // Black while a page has the screen, so the frame of our own window
             // that survives the transition is not a white band across the top.
             (browser.active?.immersed == true ? Color.black : Palette.ground)
+                .id("canvas-ground-\(paletteUpdates.revision)")
 
             // One stage, always. It starts beside the column and under the
             // strip, not behind them — a page sliding beneath floating chrome
@@ -502,6 +505,11 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 resting?.isHidden = true
                 browser.appBack()
+            }
+            .onReceive(paletteUpdates.$revision) { _ in
+                let targetWindow = window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }) ?? NSApp.mainWindow
+                targetWindow?.backgroundColor = Palette.NS.ground
+                targetWindow?.contentView?.needsDisplay = true
             }
             .onChange(of: browser.fieldShowing) { _, showing in
                 if showing {

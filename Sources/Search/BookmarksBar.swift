@@ -11,10 +11,12 @@ import SwiftUI
 struct BookmarksBar: View {
     @ObservedObject var browser: Browser
     @ObservedObject var bookmarks: Bookmarks
+    @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
 
     static let height: CGFloat = 30
 
     var body: some View {
+        let _ = paletteUpdates.revision
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
                 ForEach(bookmarks.roots) { node in

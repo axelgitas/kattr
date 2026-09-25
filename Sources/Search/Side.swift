@@ -9,6 +9,7 @@ import SwiftUI
 struct SideBar: View {
     @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
+    @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
 
     @Namespace private var pill
 
@@ -34,6 +35,7 @@ struct SideBar: View {
     private static let pinGap: CGFloat = 4
 
     var body: some View {
+        let _ = paletteUpdates.revision
         ZStack(alignment: .top) {
             // Not under the card for a new space: it isn't made of views that
             // would take the click first.
