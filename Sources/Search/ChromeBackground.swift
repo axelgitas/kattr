@@ -5,10 +5,14 @@ import AppKit
 struct ArtworkColors: Equatable {
     let topColor: (r: CGFloat, g: CGFloat, b: CGFloat)
     let leftColor: (r: CGFloat, g: CGFloat, b: CGFloat)
+    let bottomColor: (r: CGFloat, g: CGFloat, b: CGFloat)
     let averageColor: (r: CGFloat, g: CGFloat, b: CGFloat)
 
     static func == (lhs: ArtworkColors, rhs: ArtworkColors) -> Bool {
-        lhs.topColor == rhs.topColor && lhs.leftColor == rhs.leftColor && lhs.averageColor == rhs.averageColor
+        lhs.topColor == rhs.topColor &&
+        lhs.leftColor == rhs.leftColor &&
+        lhs.bottomColor == rhs.bottomColor &&
+        lhs.averageColor == rhs.averageColor
     }
 
     static func extract(from image: NSImage) -> ArtworkColors {
@@ -16,6 +20,7 @@ struct ArtworkColors: Equatable {
             return ArtworkColors(
                 topColor: (0.5, 0.5, 0.5),
                 leftColor: (0.5, 0.5, 0.5),
+                bottomColor: (0.5, 0.5, 0.5),
                 averageColor: (0.5, 0.5, 0.5)
             )
         }
@@ -34,6 +39,7 @@ struct ArtworkColors: Equatable {
             return ArtworkColors(
                 topColor: (0.5, 0.5, 0.5),
                 leftColor: (0.5, 0.5, 0.5),
+                bottomColor: (0.5, 0.5, 0.5),
                 averageColor: (0.5, 0.5, 0.5)
             )
         }
@@ -41,6 +47,7 @@ struct ArtworkColors: Equatable {
 
         var topR: CGFloat = 0, topG: CGFloat = 0, topB: CGFloat = 0, topCount: CGFloat = 0
         var leftR: CGFloat = 0, leftG: CGFloat = 0, leftB: CGFloat = 0, leftCount: CGFloat = 0
+        var bottomR: CGFloat = 0, bottomG: CGFloat = 0, bottomB: CGFloat = 0, bottomCount: CGFloat = 0
         var allR: CGFloat = 0, allG: CGFloat = 0, allB: CGFloat = 0, allCount: CGFloat = 0
 
         for y in 0..<height {
@@ -60,16 +67,21 @@ struct ArtworkColors: Equatable {
                 if x <= 2 {
                     leftR += r; leftG += g; leftB += b; leftCount += 1
                 }
+                if y >= height - 3 {
+                    bottomR += r; bottomG += g; bottomB += b; bottomCount += 1
+                }
             }
         }
 
         let avg = allCount > 0 ? (allR / allCount, allG / allCount, allB / allCount) : (0.5, 0.5, 0.5)
         let top = topCount > 0 ? (topR / topCount, topG / topCount, topB / topCount) : avg
         let left = leftCount > 0 ? (leftR / leftCount, leftG / leftCount, leftB / leftCount) : avg
+        let bottom = bottomCount > 0 ? (bottomR / bottomCount, bottomG / bottomCount, bottomB / bottomCount) : avg
 
         return ArtworkColors(
             topColor: top,
             leftColor: left,
+            bottomColor: bottom,
             averageColor: avg
         )
     }
@@ -153,6 +165,7 @@ final class ChromeLegibility: ObservableObject {
         center.addObserver(self, selector: #selector(invalidate), name: NewTabArtwork.didChange, object: nil)
         center.addObserver(self, selector: #selector(invalidate), name: ChromeArtwork.didChange, object: nil)
         center.addObserver(self, selector: #selector(invalidate), name: AppearanceBackground.didChange, object: nil)
+        center.addObserver(self, selector: #selector(invalidate), name: ChromeGlassSettings.didChange, object: nil)
     }
 
     @objc private func invalidate() {
@@ -223,44 +236,41 @@ final class ChromeLegibility: ObservableObject {
             sampledArtRGB = (0.5, 0.5, 0.5)
         }
 
-        // 1. Composite artwork over glass
-        let c1 = (
-            r: (1.0 - alphaArt) * glassBase.r + alphaArt * sampledArtRGB.r,
-            g: (1.0 - alphaArt) * glassBase.g + alphaArt * sampledArtRGB.g,
-            b: (1.0 - alphaArt) * glassBase.b + alphaArt * sampledArtRGB.b
-        )
 
         // Ground color
         let groundColor = isSystemDark ? AppearanceBackground.currentDark : AppearanceBackground.currentLight
         let groundNS = groundColor.usingColorSpace(.sRGB) ?? (isSystemDark ? NSColor(white: 0.11, alpha: 1) : NSColor.white)
         let groundRGB = (r: groundNS.redComponent, g: groundNS.greenComponent, b: groundNS.blueComponent)
-        let washRGB = isSystemDark ? (r: CGFloat(0), g: CGFloat(0), b: CGFloat(0)) : groundRGB
 
-        let alphaWash: CGFloat
+        // Canonical wash matches NewTabFade.washColor(isDark:): black in dark mode, ground in light mode
+        let washRGB: (r: CGFloat, g: CGFloat, b: CGFloat) = isSystemDark ? (0, 0, 0) : groundRGB
+        let tintRGB: (r: CGFloat, g: CGFloat, b: CGFloat) = groundRGB
+
+        let alphaTint: CGFloat = CGFloat(ChromeGlassSettings.shared.tintOpacity)
+        let cTinted = (
+            r: (1.0 - alphaTint) * glassBase.r + alphaTint * tintRGB.r,
+            g: (1.0 - alphaTint) * glassBase.g + alphaTint * tintRGB.g,
+            b: (1.0 - alphaTint) * glassBase.b + alphaTint * tintRGB.b
+        )
+
+        // 2. When showing artwork, composite high-density foundation then artwork over cTinted
+        let cFinal: (r: CGFloat, g: CGFloat, b: CGFloat)
         if isShowingArtwork {
-            if isSidebar {
-                alphaWash = isSystemDark ? 0.75 : 0.65
-            } else {
-                alphaWash = isSystemDark ? 0.35 : 0.60
-            }
+            let alphaFoundation: CGFloat = CGFloat(ChromeGlassSettings.shared.artworkFoundationOpacity)
+            let cFoundation = (
+                r: (1.0 - alphaFoundation) * cTinted.r + alphaFoundation * washRGB.r,
+                g: (1.0 - alphaFoundation) * cTinted.g + alphaFoundation * washRGB.g,
+                b: (1.0 - alphaFoundation) * cTinted.b + alphaFoundation * washRGB.b
+            )
+
+            cFinal = (
+                r: (1.0 - alphaArt) * cFoundation.r + alphaArt * sampledArtRGB.r,
+                g: (1.0 - alphaArt) * cFoundation.g + alphaArt * sampledArtRGB.g,
+                b: (1.0 - alphaArt) * cFoundation.b + alphaArt * sampledArtRGB.b
+            )
         } else {
-            alphaWash = 0.0
+            cFinal = cTinted
         }
-
-        // 2. Composite readability wash over c1
-        let c2 = (
-            r: (1.0 - alphaWash) * c1.r + alphaWash * washRGB.r,
-            g: (1.0 - alphaWash) * c1.g + alphaWash * washRGB.g,
-            b: (1.0 - alphaWash) * c1.b + alphaWash * washRGB.b
-        )
-
-        // 3. Composite permanent Palette.ground.opacity(0.35) tint over c2
-        let alphaTint: CGFloat = 0.35
-        let cFinal = (
-            r: (1.0 - alphaTint) * c2.r + alphaTint * groundRGB.r,
-            g: (1.0 - alphaTint) * c2.g + alphaTint * groundRGB.g,
-            b: (1.0 - alphaTint) * c2.b + alphaTint * groundRGB.b
-        )
 
         func linearize(_ c: CGFloat) -> CGFloat {
             let clamped = max(0, min(1, c))
@@ -313,8 +323,8 @@ final class ChromeLegibility: ObservableObject {
               - Active tab isBlank: \(isBlank), showing artwork: \(isShowingArtwork)
               - Artwork sampled RGB: (\(String(format: "%.2f, %.2f, %.2f", sampledArtRGB.r, sampledArtRGB.g, sampledArtRGB.b))), opacity: \(String(format: "%.2f", alphaArt))
               - Glass base RGB: (\(String(format: "%.2f, %.2f, %.2f", glassBase.r, glassBase.g, glassBase.b)))
-              - Readability wash RGB: (\(String(format: "%.2f, %.2f, %.2f", washRGB.r, washRGB.g, washRGB.b))), opacity: \(String(format: "%.2f", alphaWash))
-              - Palette.ground RGB: (\(String(format: "%.2f, %.2f, %.2f", groundRGB.r, groundRGB.g, groundRGB.b))), tint opacity: \(String(format: "%.2f", alphaTint))
+              - Foundation wash RGB: (\(String(format: "%.2f, %.2f, %.2f", washRGB.r, washRGB.g, washRGB.b))), opacity: \(String(format: "%.2f", ChromeGlassSettings.shared.artworkFoundationOpacity))
+              - Tint RGB: (\(String(format: "%.2f, %.2f, %.2f", tintRGB.r, tintRGB.g, tintRGB.b))), tint opacity: \(String(format: "%.2f", alphaTint))
               - Final estimated effective RGB: (\(String(format: "%.2f, %.2f, %.2f", cFinal.r, cFinal.g, cFinal.b)))
               - Final effective luminance: \(String(format: "%.3f", effectiveLuminance))
               - Selected foreground: \(isDarkForeground ? "DARK" : "LIGHT")
@@ -325,34 +335,6 @@ final class ChromeLegibility: ObservableObject {
     }
 }
 
-/// Placement mathematics reproducing the exact scale and hero geometry from NewTabBackground for the top tab strip.
-struct ArtworkHeroPlacement {
-    let scale: CGFloat
-    let fittedWidth: CGFloat
-    let fittedHeight: CGFloat
-    let heroHeight: CGFloat
-    let pageWidth: CGFloat
-    let pageHeight: CGFloat
-
-    init(pageWidth: CGFloat, pageHeight: CGFloat, imageSize: CGSize) {
-        self.pageWidth = max(pageWidth, 1)
-        self.pageHeight = max(pageHeight, 1)
-        self.heroHeight = min(self.pageHeight * 0.72, 760)
-        let s = max(self.pageWidth / max(imageSize.width, 1), self.heroHeight / max(imageSize.height, 1))
-        self.scale = s
-        self.fittedWidth = imageSize.width * s
-        self.fittedHeight = imageSize.height * s
-    }
-
-    /// Image center in local coordinates of the top tab strip container.
-    /// Page hero center in page coords: (pageWidth / 2, heroHeight / 2).
-    /// Page top is at window y = Metrics.strip.
-    /// TabBar container origin in window coords is (0, 0).
-    /// TabBar local image center: (pageWidth / 2, Metrics.strip + heroHeight / 2).
-    func localCenter() -> CGPoint {
-        CGPoint(x: pageWidth / 2, y: Metrics.strip + heroHeight / 2)
-    }
-}
 
 /// Provider and cache for optional dedicated Chrome Artwork.
 enum ChromeArtwork {
@@ -471,6 +453,7 @@ struct ChromeBackgroundHost: View {
             isSidebar: isSidebar,
             landing: landing
         )
+        .allowsHitTesting(false)
     }
 }
 
@@ -486,6 +469,7 @@ private struct ChromeBackground: View {
     let landing: Bool
 
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
+    @ObservedObject private var glass = ChromeGlassSettings.shared
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -497,14 +481,19 @@ private struct ChromeBackground: View {
                 // Always alive, never conditionally unmounted, never animated.
                 // Samples the desktop behind the window using AppKit's native compositor.
                 FrostedGlass(
-                    material: isSidebar ? .sidebar : .headerView,
+                    material: glass.material(isSidebar: isSidebar),
                     blendingMode: .behindWindow,
                     cornerRadius: 0
                 )
 
-                // 2. OPTIONAL ARTWORK LAYER (NEW-TAB ONLY)
-                // In sidebar mode: ONLY shown if Separate Chrome Artwork is configured and enabled.
-                // In horizontal tabs mode: continues NewTabArtwork or displays Separate Chrome Artwork.
+                // 2. PERMANENT TRANSLUCENT TINT (UNDER ARTWORK)
+                // Tint lives above FrostedGlass and under artwork.
+                // Uses Palette.ground so the user's canvas background tint softly tones the frosted glass.
+                Palette.ground
+                    .opacity(glass.tintOpacity)
+
+                // 3. OPTIONAL ARTWORK LAYER (NEW-TAB ONLY OR SEPARATE ARTWORK)
+                // Rendered above FrostedGlass and Glass Tint so the artwork is never tinted from above.
                 if let tab = activeTab {
                     ChromeArtworkLayer(
                         browser: browser,
@@ -514,13 +503,6 @@ private struct ChromeBackground: View {
                     )
                 }
 
-                // 3. PERMANENT TRANSLUCENT TINT
-                // Adaptive tint derived from active Palette.ground so chrome harmonizes
-                // with custom canvas colors while keeping the desktop visible.
-                // Sits above glass on loaded pages, and above glass + artwork on new tabs.
-                Palette.ground
-                    .opacity(0.35)
-
                 // 4. LANDING / DRAG OVERLAY
                 if landing {
                     Palette.hover
@@ -528,8 +510,11 @@ private struct ChromeBackground: View {
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Rectangle())
             .clipped()
         }
+        .contentShape(Rectangle())
+        .allowsHitTesting(false)
     }
 }
 
@@ -540,19 +525,18 @@ private struct ChromeArtworkLayer: View {
     let isSidebar: Bool
     let size: CGSize
 
+    @ObservedObject private var glass = ChromeGlassSettings.shared
+
     @State private var newTabImage: NSImage? = NewTabArtwork.current()
     @State private var chromeImage: NSImage? = ChromeArtwork.current()
     @State private var overrideArtwork: Bool = ChromeArtwork.overrideNewTabArtwork
+    @State private var windowWidth: CGFloat = 0
+    @State private var windowHeight: CGFloat = 0
 
     @Environment(\.colorScheme) private var colorScheme
 
     private var isDark: Bool {
         colorScheme == .dark
-    }
-
-    /// Grounding overlay color matching the foundation and bottom fade of NewTabBackground.
-    private var washColor: Color {
-        NewTabFade.washColor(isDark: isDark)
     }
 
     private var hasArtwork: Bool {
@@ -584,18 +568,34 @@ private struct ChromeArtworkLayer: View {
         ZStack {
             if hasArtwork, size.width > 0, size.height > 0 {
                 artworkContent(size: size)
-                    .opacity(isShowingArtwork ? 0.85 : 0.0)
+                    .opacity(isShowingArtwork ? 1.0 : 0.0)
             }
         }
+        .contentShape(Rectangle())
+        .allowsHitTesting(false)
         .animation(.easeOut(duration: 0.18), value: isShowingArtwork)
         .onAppear {
             reloadArtwork()
+            updateWindowGeometry()
         }
         .onReceive(NotificationCenter.default.publisher(for: NewTabArtwork.didChange)) { _ in
             reloadArtwork()
         }
         .onReceive(NotificationCenter.default.publisher(for: ChromeArtwork.didChange)) { _ in
             reloadArtwork()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { _ in
+            updateWindowGeometry()
+        }
+    }
+
+    private func updateWindowGeometry() {
+        let win = Links.window?.contentView?.bounds ?? NSApp.keyWindow?.contentView?.bounds
+        if let w = win?.width, w > 0 {
+            self.windowWidth = w
+        }
+        if let h = win?.height, h > 0 {
+            self.windowHeight = h
         }
     }
 
@@ -625,144 +625,137 @@ private struct ChromeArtworkLayer: View {
         }
     }
 
+    private var atmosphericWashColor: Color {
+        NewTabFade.washColor(isDark: isDark)
+    }
+
     @ViewBuilder
     private func artworkContent(size: CGSize) -> some View {
         if isSidebar {
             // In sidebar mode, only separate chrome artwork is rendered when enabled.
-            // Uses a long top-to-bottom dissolve matching NewTabFade semantics.
+            // Uses full vertical atmospheric progression with FrostedGlass active underneath.
             if let image = chromeImage {
-                ZStack {
+                let wash = atmosphericWashColor
+                let atmosphere = ArtworkAtmosphere(isDark: isDark, customWashColor: wash)
+
+                let effectiveWindowWidth = windowWidth > 0
+                    ? windowWidth
+                    : (Links.window?.contentView?.bounds.width ?? 1180)
+                let effectiveWindowHeight = windowHeight > 0
+                    ? windowHeight
+                    : (Links.window?.contentView?.bounds.height ?? 800)
+                let referenceWidth = max(size.width, effectiveWindowWidth)
+                let referenceHeight = max(size.height, effectiveWindowHeight)
+                let heroHeight = min(referenceHeight * 0.72, 760)
+
+                ZStack(alignment: .topLeading) {
+                    // 0. High-density atmosphere foundation
+                    // Sits above FrostedGlass and Glass Tint, below artwork blurs.
+                    // Anchors the atmosphere to NewTabFade.washColor with high density (~0.90)
+                    // so the artwork blurs melt into the foundation while retaining subtle glass shimmer.
+                    wash
+                        .opacity(glass.artworkFoundationOpacity)
+                        .frame(width: size.width, height: size.height)
+
+                    // Virtual atmospheric canvas
+                    // Rendered across the full reference width (window width) and height so blurs
+                    // sample the complete artwork with lateral lighting before being clipped to the sidebar.
+                    ZStack(alignment: .topLeading) {
+                        // 1. Ambient base layer (75pt blur across wide virtual canvas)
+                        AtmosphericBaseLayer(
+                            image: image,
+                            atmosphere: atmosphere,
+                            viewportWidth: referenceWidth,
+                            viewportHeight: referenceHeight
+                        )
+
+                        // 2. Ambient continuation layer (54pt blur across wide virtual canvas)
+                        AtmosphericContinuationLayer(
+                            image: image,
+                            atmosphere: atmosphere,
+                            viewportWidth: referenceWidth,
+                            viewportHeight: referenceHeight,
+                            heroHeight: heroHeight
+                        )
+                    }
+                    .frame(width: referenceWidth, height: referenceHeight, alignment: .topLeading)
+                    .frame(width: size.width, height: size.height, alignment: .topLeading)
+                    .contentShape(Rectangle())
+                    .clipped()
+                    .allowsHitTesting(false)
+
+                    // 3. Sharp hero layer (sidebar-focused framing with dedicated smooth atmospheric handoff)
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .frame(width: size.width, height: size.height, alignment: .top)
+                        .frame(width: size.width, height: heroHeight, alignment: .top)
                         .clipped()
-
-                    // Apply NewTab-style vertical atmospheric wash overlay melting into washColor towards the bottom
-                    NewTabFade.washGradient(washColor: washColor)
+                        .mask {
+                            NewTabFade.sidebarHeroMask()
+                        }
                 }
-                .mask {
-                    NewTabFade.heroBottomMask()
-                }
-                .frame(width: size.width, height: size.height)
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
+                .contentShape(Rectangle())
                 .clipped()
+                .allowsHitTesting(false)
             }
         } else {
             // Horizontal top tab strip mode:
+            // Uses a virtual canvas sized to the real viewport height to compute atmospheric
+            // blurs and hero proportions before clipping only the top 38-52pt visible slice.
             let useSeparate = overrideArtwork && chromeImage != nil
             let selectedImage = useSeparate ? chromeImage : (newTabImage ?? chromeImage)
 
             if let image = selectedImage {
-                ZStack {
-                    if useSeparate {
-                        // Separate chrome artwork: aspect-fill to chrome container bounds
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: size.width, height: size.height, alignment: .center)
-                            .clipped()
-                    } else {
-                        // New Tab artwork continuation:
-                        // 1. Full chrome bounds: atmospheric artwork bleed fills the entire area
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: size.width, height: size.height, alignment: .center)
-                            .scaleEffect(1.25)
-                            .blur(radius: 54)
-                            .frame(width: size.width, height: size.height)
-                            .clipped()
-                            .opacity(0.85)
+                let wash = atmosphericWashColor
+                let atmosphere = ArtworkAtmosphere(isDark: isDark, customWashColor: wash)
 
-                        // 2. Exact continuation painted only where its source geometry intersects,
-                        // uncovered area is completely transparent (clear).
-                        exactContinuation(image: image, size: size)
-                    }
+                let effectiveWindowHeight = windowHeight > 0
+                    ? windowHeight
+                    : (Links.window?.contentView?.bounds.height ?? 800)
+                let referenceWidth = size.width
+                let referenceHeight = max(size.height, effectiveWindowHeight - size.height)
+                let heroHeight = min(referenceHeight * 0.72, 760)
 
-                    // Top strip readability wash
-                    topStripReadabilityWash(size: size)
+                ZStack(alignment: .topLeading) {
+                    // 0. High-density atmosphere foundation
+                    wash
+                        .opacity(glass.artworkFoundationOpacity)
+                        .frame(width: referenceWidth, height: referenceHeight)
+
+                    // 1. Ambient base layer (75pt blur across virtual canvas)
+                    AtmosphericBaseLayer(
+                        image: image,
+                        atmosphere: atmosphere,
+                        viewportWidth: referenceWidth,
+                        viewportHeight: referenceHeight
+                    )
+
+                    // 2. Ambient continuation layer (54pt blur across virtual canvas)
+                    AtmosphericContinuationLayer(
+                        image: image,
+                        atmosphere: atmosphere,
+                        viewportWidth: referenceWidth,
+                        viewportHeight: referenceHeight,
+                        heroHeight: heroHeight
+                    )
+
+                    // 3. Sharp hero layer (across virtual canvas)
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: referenceWidth, height: heroHeight, alignment: .center)
+                        .clipped()
+                        .mask {
+                            NewTabFade.heroBottomMask()
+                        }
                 }
-                .frame(width: size.width, height: size.height)
+                .frame(width: referenceWidth, height: referenceHeight, alignment: .topLeading)
+                .frame(width: size.width, height: size.height, alignment: .topLeading)
+                .contentShape(Rectangle())
                 .clipped()
+                .allowsHitTesting(false)
             }
         }
-    }
-
-    /// Readability wash overlay for the horizontal top tab strip.
-    /// Represents the top slice of the New Tab fade: artwork opacity stays high across the strip,
-    /// with the same NewTabFade washColor subtly increasing vertically toward the bottom.
-    @ViewBuilder
-    private func topStripReadabilityWash(size: CGSize) -> some View {
-        LinearGradient(
-            stops: [
-                .init(color: washColor.opacity(isDark ? 0.18 : 0.30), location: 0.0),
-                .init(color: washColor.opacity(isDark ? 0.32 : 0.50), location: 1.0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-    }
-
-    @ViewBuilder
-    private func exactContinuation(image: NSImage, size: CGSize) -> some View {
-        let currentWindowSize = Links.window?.contentView?.bounds.size
-        let effectiveWindowWidth = (currentWindowSize?.width ?? 0) > 100
-            ? currentWindowSize!.width
-            : size.width
-        let effectiveWindowHeight = (currentWindowSize?.height ?? 0) > 100
-            ? currentWindowSize!.height
-            : size.height + 742
-
-        let pageWidth = effectiveWindowWidth
-        let pageHeight = max(1, effectiveWindowHeight - Metrics.strip)
-
-        let placement = ArtworkHeroPlacement(
-            pageWidth: pageWidth,
-            pageHeight: pageHeight,
-            imageSize: image.size
-        )
-        let center = placement.localCenter()
-
-        let imgMinX = center.x - placement.fittedWidth / 2
-        let imgMinY = center.y - placement.fittedHeight / 2
-
-        let imgRect = CGRect(x: imgMinX, y: imgMinY, width: placement.fittedWidth, height: placement.fittedHeight)
-        let chromeRect = CGRect(origin: .zero, size: size)
-        let intersection = imgRect.intersection(chromeRect)
-
-        if !intersection.isNull && !intersection.isEmpty {
-            Image(nsImage: image)
-                .resizable()
-                .frame(width: placement.fittedWidth, height: placement.fittedHeight)
-                .position(x: center.x, y: center.y)
-                .frame(width: size.width, height: size.height, alignment: .topLeading)
-                .clipped()
-                .mask {
-                    continuationMask(
-                        size: size,
-                        imgMinY: imgMinY
-                    )
-                }
-        }
-    }
-
-    @ViewBuilder
-    private func continuationMask(
-        size: CGSize,
-        imgMinY: CGFloat
-    ) -> some View {
-        let vFadeStart = max(0, imgMinY) / max(size.height, 1)
-        let vFadeEnd = min(size.height, imgMinY + 16) / max(size.height, 1)
-
-        LinearGradient(
-            stops: [
-                .init(color: .clear, location: 0.0),
-                .init(color: .clear, location: vFadeStart),
-                .init(color: .white, location: max(vFadeStart + 0.01, vFadeEnd)),
-                .init(color: .white, location: 1.0)
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-        )
     }
 }

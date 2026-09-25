@@ -21,6 +21,7 @@ struct SettingsPanel: View {
     @State private var chromeArtworkThumbnail: NSImage? = ChromeArtwork.current()
     @State private var useSeparateChromeArtwork: Bool = ChromeArtwork.overrideNewTabArtwork
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
+    @ObservedObject private var glassSettings = ChromeGlassSettings.shared
 
     enum Page: String, CaseIterable, Identifiable {
         case general, tabs, extensions, passwords, downloads, privacy, about
@@ -193,6 +194,44 @@ struct SettingsPanel: View {
                         Rule()
                         Line("Use Separate Chrome Artwork", "Use this artwork for browser chrome on every tab. When off, the sidebar shows only frosted glass and background tint.") {
                             Switch(on: $useSeparateChromeArtwork)
+                        }
+                    }
+                    Rule()
+                    Line("Chrome Glass Tint", "Color tint layered over the frosted glass") {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: Binding(
+                                    get: { glassSettings.tintOpacity },
+                                    set: { glassSettings.tintOpacity = $0 }
+                                ),
+                                in: ChromeGlassSettings.tintRange,
+                                step: ChromeGlassSettings.tintStep
+                            )
+                            .frame(width: 90)
+
+                            Text("\(Int(round(glassSettings.tintOpacity * 100)))%")
+                                .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                                .foregroundStyle(Palette.ink)
+                                .frame(width: 34, alignment: .trailing)
+                        }
+                    }
+                    Rule()
+                    Line("Chrome Glass Strength", "Diffusion profile for the underlying frosted glass") {
+                        HStack(spacing: 8) {
+                            Segmented(
+                                options: ChromeGlassStrength.allCases.map { ($0, $0.title) },
+                                selection: Binding(
+                                    get: { glassSettings.strength },
+                                    set: { glassSettings.strength = $0 }
+                                )
+                            )
+
+                            if glassSettings.isCustomized {
+                                Pill("Reset") {
+                                    glassSettings.reset()
+                                }
+                                .fixedSize()
+                            }
                         }
                     }
                     Rule()
