@@ -323,6 +323,17 @@ struct ContentView: View {
                 .offset(x: stageOffsetX, y: stageOffsetY)
                 .id("canvas-ground-\(paletteUpdates.revision)")
 
+            // Exactly one persistent New Tab FrostedGlass covering full window bounds,
+            // mounted strictly when isBlank == true, visually clipped to the animated NewTabStageMaskShape.
+            if isBlank {
+                PersistentNewTabBackground(
+                    stageLeading: effectiveRoomWidth,
+                    stageTop: effectiveRoomHeight,
+                    stageOffsetX: stageOffsetX,
+                    stageOffsetY: stageOffsetY
+                )
+            }
+
             // One stage, always. It starts beside the column and under the
             // strip, not behind them — a page sliding beneath floating chrome
             // is a browser showing off, and it costs a compositing pass.
@@ -337,6 +348,16 @@ struct ContentView: View {
                 .padding(.leading, effectiveRoomWidth)
                 .padding(.top, effectiveRoomHeight)
                 .offset(x: stageOffsetX, y: stageOffsetY)
+
+            // Exactly one persistent Chrome FrostedGlass covering full window bounds,
+            // visually clipped to the static ChromeMaskShape, with continuous artwork morphing underneath.
+            PersistentChromeBackground(
+                browser: browser,
+                sideWidth: sidebar ? browser.prefs.sideWidth : 0,
+                topHeight: sidebar ? 0 : band + (barShown ? BookmarksBar.height : 0),
+                targetSideWidth: browser.prefs.sideWidth,
+                targetTopHeight: Metrics.strip + (barShown ? BookmarksBar.height : 0)
+            )
 
             // The column of tabs, in the way that has one. It takes the full
             // height, so the traffic lights sit in its own corner rather than
@@ -391,7 +412,7 @@ struct ContentView: View {
                 }
                 .animation(Motion.quick, value: browser.suggesting)
         } else {
-            BrowserSurfaceView(isSidebar: sidebar)
+            Color.clear
         }
     }
 

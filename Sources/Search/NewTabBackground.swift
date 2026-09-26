@@ -2,6 +2,72 @@ import SwiftUI
 import AppKit
 
 
+/// An animatable shape masking the persistent New Tab backdrop to the active stage/page region.
+struct NewTabStageMaskShape: Shape {
+    var stageLeading: CGFloat
+    var stageTop: CGFloat
+    var stageOffsetX: CGFloat
+    var stageOffsetY: CGFloat
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
+        get {
+            AnimatablePair(
+                AnimatablePair(stageLeading, stageTop),
+                AnimatablePair(stageOffsetX, stageOffsetY)
+            )
+        }
+        set {
+            stageLeading = newValue.first.first
+            stageTop = newValue.first.second
+            stageOffsetX = newValue.second.first
+            stageOffsetY = newValue.second.second
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let x = stageLeading + stageOffsetX
+        let y = stageTop + stageOffsetY
+        let w = max(0, rect.width - stageLeading)
+        let h = max(0, rect.height - stageTop)
+        if w > 0 && h > 0 {
+            path.addRect(CGRect(x: x, y: y, width: w, height: h))
+        }
+        return path
+    }
+}
+
+/// The root-level persistent New Tab background view hosting exactly one FrostedGlass covering full window bounds,
+/// clipped to the animated NewTabStageMaskShape.
+///
+/// Invariant: NSVisualEffectView is sized to full window bounds with a fixed origin.
+/// Only its reveal mask animates during layout transitions, preventing WindowServer backdrop re-allocation.
+struct PersistentNewTabBackground: View {
+    let stageLeading: CGFloat
+    let stageTop: CGFloat
+    let stageOffsetX: CGFloat
+    let stageOffsetY: CGFloat
+
+    var body: some View {
+        GeometryReader { geo in
+            BrowserSurfaceView(
+                isSidebar: false
+            )
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipShape(
+                NewTabStageMaskShape(
+                    stageLeading: stageLeading,
+                    stageTop: stageTop,
+                    stageOffsetX: stageOffsetX,
+                    stageOffsetY: stageOffsetY
+                )
+            )
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
 /// Zeron-inspired artwork treatment for Search's blank / new-tab page.
 ///
 /// Occupies the upper portion of the page viewport (~72% height, capped at 760pt),
@@ -27,13 +93,7 @@ struct NewTabBackground: View {
             let atmosphere = ArtworkAtmosphere(isDark: isDark, tintOpacity: glassTint.tintOpacity)
 
             ZStack(alignment: .topLeading) {
-                // 1. NEW TAB BROWSER SURFACE
-                // Sits strictly at the bottom of the page stack, covering the entire stage area.
-                // Uses the identical material, Palette.ground coloration, and Surface Transparency as Chrome.
-                BrowserSurfaceView(isSidebar: isSidebar)
-                    .frame(width: size.width, height: size.height)
-
-                // 2. NEW TAB ARTWORK STACK
+                // 1. NEW TAB ARTWORK STACK
                 // Sits strictly above Browser Surface. Fades with artworkOpacity.
                 if let image {
                     ArtworkStackView(

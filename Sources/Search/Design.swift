@@ -536,15 +536,27 @@ struct FrostedGlass: NSViewRepresentable {
     }
 
     func updateNSView(_ view: GlassView, context: Context) {
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-        if cornerRadius > 0 {
-            view.layer?.cornerRadius = cornerRadius
-            view.layer?.masksToBounds = true
-        } else {
-            view.layer?.cornerRadius = 0
-            view.layer?.masksToBounds = false
+        if view.material != material {
+            view.material = material
+        }
+
+        if view.blendingMode != blendingMode {
+            view.blendingMode = blendingMode
+        }
+
+        if view.state != .active {
+            view.state = .active
+        }
+
+        let targetCornerRadius = cornerRadius > 0 ? cornerRadius : 0
+        let targetMasksToBounds = cornerRadius > 0
+
+        if view.layer?.cornerRadius != targetCornerRadius {
+            view.layer?.cornerRadius = targetCornerRadius
+        }
+
+        if view.layer?.masksToBounds != targetMasksToBounds {
+            view.layer?.masksToBounds = targetMasksToBounds
         }
     }
 

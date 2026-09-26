@@ -442,86 +442,117 @@ enum ChromeArtwork {
     }
 }
 
-/// Host view providing permanent frosted glass and translucent tint, with new-tab-only artwork.
-struct ChromeBackgroundHost: View {
-    @ObservedObject var browser: Browser
-    let isSidebar: Bool
-    let landing: Bool
+/// Static mask shape for BrowserSurface FrostedGlass: animatableData disabled so the mask snaps immediately.
+struct ChromeMaskShape: Shape {
+    var sideWidth: CGFloat
+    var topHeight: CGFloat
 
-    var body: some View {
-        ChromeBackground(
-            browser: browser,
-            activeTab: browser.active,
-            isSidebar: isSidebar,
-            landing: landing
-        )
-        .allowsHitTesting(false)
+    // Static snapping: animatableData disabled so the NSVisualEffectView reveal mask snaps immediately without backdrop resampling.
+    var animatableData: EmptyAnimatableData {
+        get { EmptyAnimatableData() }
+        set {}
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        if sideWidth > 0 {
+            path.addRect(CGRect(x: 0, y: 0, width: sideWidth, height: rect.height))
+        }
+        if topHeight > 0 {
+            path.addRect(CGRect(x: 0, y: 0, width: rect.width, height: topHeight))
+        }
+        return path
     }
 }
 
-/// Renders the layered chrome background.
-///
-/// Invariant: BrowserSurfaceView is PERMANENT and NEVER unmounted or animated.
-/// It continuously samples the desktop behind the NSWindow with .behindWindow blending.
-/// The active tab's blank state controls ONLY the opacity of the artwork layer.
-private struct ChromeBackground: View {
-    @ObservedObject var browser: Browser
-    let activeTab: Tab?
-    let isSidebar: Bool
-    let landing: Bool
+/// Animatable reveal mask for Chrome artwork only.
+/// Interpolates smoothly between the top tab strip and the sidebar using Motion.glide.
+/// Kept strictly separate from the static snapping ChromeMaskShape used by BrowserSurface FrostedGlass.
+struct ChromeArtworkMaskShape: Shape {
+    var sideWidth: CGFloat
+    var topHeight: CGFloat
 
-    @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
-    @Environment(\.colorScheme) private var colorScheme
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(sideWidth, topHeight) }
+        set {
+            sideWidth = newValue.first
+            topHeight = newValue.second
+        }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        if sideWidth > 0 {
+            path.addRect(CGRect(x: 0, y: 0, width: sideWidth, height: rect.height))
+        }
+        if topHeight > 0 {
+            path.addRect(CGRect(x: 0, y: 0, width: rect.width, height: topHeight))
+        }
+        return path
+    }
+}
+
+/// The root-level persistent Chrome background view hosting exactly one FrostedGlass covering full window bounds,
+/// clipped to the static snapping ChromeMaskShape, and a continuous Chrome artwork hierarchy clipped to ChromeArtworkMaskShape.
+struct PersistentChromeBackground: View {
+    @ObservedObject var browser: Browser
+    let sideWidth: CGFloat
+    let topHeight: CGFloat
+    var targetSideWidth: CGFloat = 210
+    var targetTopHeight: CGFloat = 44
 
     var body: some View {
-        let _ = paletteUpdates.revision
-        let _ = colorScheme
         GeometryReader { geo in
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 // 1. PERSISTENT CHROME BROWSER SURFACE
-                // Always alive, never conditionally unmounted, never animated.
-                // FrostedGlass + Palette.ground coloration governed by surfaceOpacity.
-                BrowserSurfaceView(isSidebar: isSidebar)
-                    .frame(width: geo.size.width, height: geo.size.height)
+                // Full-window NSVisualEffectView, fixed origin, fixed frame, fixed opacity.
+                // Revealed only in Chrome areas by static snapping ChromeMaskShape.
+                BrowserSurfaceView(
+                    isSidebar: browser.prefs.sidebar
+                )
+                .frame(width: geo.size.width, height: geo.size.height)
+                .clipShape(ChromeMaskShape(sideWidth: sideWidth, topHeight: topHeight))
+                .transaction { $0.animation = nil }
 
-                // 2. OPTIONAL ARTWORK LAYER (NEW-TAB ONLY OR SEPARATE ARTWORK)
-                // Sits strictly above BrowserSurfaceView so the artwork is never tinted from above.
-                if let tab = activeTab {
-                    ChromeArtworkLayer(
+                // 2. PERSISTENT CHROME ARTWORK LAYER
+                // Continuous, orientation-independent image selection.
+                // Smoothly morphs scale and center anchor with Motion.glide.
+                // Clipped strictly by animatable ChromeArtworkMaskShape (artwork-only).
+                if let tab = browser.active {
+                    ChromeArtworkHost(
                         browser: browser,
                         tab: tab,
-                        isSidebar: isSidebar,
-                        size: geo.size
+                        sideWidth: sideWidth,
+                        topHeight: topHeight,
+                        targetSideWidth: targetSideWidth,
+                        targetTopHeight: targetTopHeight,
+                        windowSize: geo.size
                     )
+                    .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight))
                 }
 
-                // 3. LANDING / DRAG OVERLAY
-                if landing {
-                    Palette.hover
-                        .opacity(0.85)
-                }
-
-                // 4. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
+                // 3. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
                 // Sits above the chrome artwork stack to refract and sample the rendered artwork.
-                // Governed independently by LiquidGlassSettings (style and intensity).
                 NativeLiquidGlassOverlay()
                     .frame(width: geo.size.width, height: geo.size.height)
+                    .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight))
             }
             .frame(width: geo.size.width, height: geo.size.height)
-            .contentShape(Rectangle())
-            .clipped()
         }
-        .contentShape(Rectangle())
+        .ignoresSafeArea()
         .allowsHitTesting(false)
     }
 }
 
-/// Renders the optional new-tab artwork layer and observes the active tab's blank state.
-private struct ChromeArtworkLayer: View {
+/// Host view managing artwork source selection, settings observations, and lifecycle.
+private struct ChromeArtworkHost: View {
     @ObservedObject var browser: Browser
     @ObservedObject var tab: Tab
-    let isSidebar: Bool
-    let size: CGSize
+    let sideWidth: CGFloat
+    let topHeight: CGFloat
+    let targetSideWidth: CGFloat
+    let targetTopHeight: CGFloat
+    let windowSize: CGSize
 
     @ObservedObject private var glass = ChromeGlassSettings.shared
     @ObservedObject private var glassTint = AppearanceGlassSettings.shared
@@ -530,8 +561,6 @@ private struct ChromeArtworkLayer: View {
     @State private var newTabImage: NSImage? = NewTabArtwork.current()
     @State private var chromeImage: NSImage? = ChromeArtwork.current()
     @State private var overrideArtwork: Bool = ChromeArtwork.overrideNewTabArtwork
-    @State private var windowWidth: CGFloat = 0
-    @State private var windowHeight: CGFloat = 0
 
     @Environment(\.colorScheme) private var colorScheme
 
@@ -539,44 +568,58 @@ private struct ChromeArtworkLayer: View {
         colorScheme == .dark
     }
 
-    private var hasArtwork: Bool {
-        if isSidebar {
-            // SIDEBAR MODE: ONLY show artwork if separate chrome artwork is configured and enabled.
-            // The default New Tab page continuation into the sidebar is completely removed.
-            return overrideArtwork && chromeImage != nil
-        } else {
-            // HORIZONTAL TOP STRIP MODE:
-            if overrideArtwork && chromeImage != nil {
-                return true
-            }
-            return newTabImage != nil || chromeImage != nil
+    /// Orientation-independent image resolution.
+    /// Preserves exact source selection across horizontal and vertical transitions.
+    private var selectedImage: NSImage? {
+        let useSeparate = overrideArtwork && chromeImage != nil
+        if useSeparate {
+            return chromeImage
         }
+        return newTabImage ?? chromeImage
     }
 
+    /// Visibility condition:
+    /// - If separate Chrome artwork override is enabled: continuously visible across all tabs.
+    /// - If using default New Tab artwork: visible on blank tabs in both horizontal and sidebar modes.
+    /// Orientation changes NEVER modify this condition, eliminating layout fade-outs.
     private var isShowingArtwork: Bool {
         let useSeparate = overrideArtwork && chromeImage != nil
         if useSeparate {
-            // Persistent across all tabs (blank and loaded)
             return true
-        } else {
-            // Contextual New Tab artwork (horizontal strip only)
-            return tab.isBlank && hasArtwork
         }
+        return tab.isBlank && (selectedImage != nil)
     }
 
     var body: some View {
         ZStack {
-            if hasArtwork, size.width > 0, size.height > 0 {
-                artworkContent(size: size)
-                    .opacity(isShowingArtwork ? 1.0 : 0.0)
+            if let image = selectedImage, windowSize.width > 0, windowSize.height > 0 {
+                let wash = NewTabFade.washColor(isDark: isDark)
+                let atmosphere = ArtworkAtmosphere(
+                    isDark: isDark,
+                    customWashColor: wash,
+                    tintOpacity: glassTint.tintOpacity
+                )
+
+                ContinuousChromeArtworkView(
+                    image: image,
+                    sideWidth: sideWidth,
+                    topHeight: topHeight,
+                    targetSideWidth: targetSideWidth,
+                    targetTopHeight: targetTopHeight,
+                    windowWidth: windowSize.width,
+                    windowHeight: windowSize.height,
+                    washColor: wash,
+                    atmosphere: atmosphere,
+                    foundationOpacity: glass.artworkFoundationOpacity * transparency.backgroundOpacity,
+                    artworkOpacity: transparency.artworkOpacity
+                )
+                .opacity(isShowingArtwork ? 1.0 : 0.0)
             }
         }
         .contentShape(Rectangle())
         .allowsHitTesting(false)
-        .animation(.easeOut(duration: 0.18), value: isShowingArtwork)
         .onAppear {
             reloadArtwork()
-            updateWindowGeometry()
         }
         .onReceive(NotificationCenter.default.publisher(for: NewTabArtwork.didChange)) { _ in
             reloadArtwork()
@@ -584,34 +627,19 @@ private struct ChromeArtworkLayer: View {
         .onReceive(NotificationCenter.default.publisher(for: ChromeArtwork.didChange)) { _ in
             reloadArtwork()
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { _ in
-            updateWindowGeometry()
-        }
-    }
-
-    private func updateWindowGeometry() {
-        let win = Links.window?.contentView?.bounds ?? NSApp.keyWindow?.contentView?.bounds
-        if let w = win?.width, w > 0 {
-            self.windowWidth = w
-        }
-        if let h = win?.height, h > 0 {
-            self.windowHeight = h
-        }
     }
 
     private func reloadArtwork() {
         overrideArtwork = ChromeArtwork.overrideNewTabArtwork
 
-        if !isSidebar {
-            if let currentNewTab = NewTabArtwork.current() {
-                newTabImage = currentNewTab
-            } else if NewTabArtwork.imageURL != nil {
-                NewTabArtwork.load { loaded in
-                    self.newTabImage = loaded
-                }
-            } else {
-                newTabImage = nil
+        if let currentNewTab = NewTabArtwork.current() {
+            newTabImage = currentNewTab
+        } else if NewTabArtwork.imageURL != nil {
+            NewTabArtwork.load { loaded in
+                self.newTabImage = loaded
             }
+        } else {
+            newTabImage = nil
         }
 
         if let currentChrome = ChromeArtwork.current() {
@@ -624,149 +652,119 @@ private struct ChromeArtworkLayer: View {
             chromeImage = nil
         }
     }
+}
 
-    private var atmosphericWashColor: Color {
-        NewTabFade.washColor(isDark: isDark)
+/// Continuous Chrome artwork presentation conforming to Animatable.
+/// Interpolates scale, horizontal focal center, hero height, and atmosphere continuously
+/// between horizontal top-bar geometry and vertical sidebar geometry without unmounting or source swapping.
+struct ContinuousChromeArtworkView: View, Animatable {
+    let image: NSImage
+    var sideWidth: CGFloat
+    var topHeight: CGFloat
+    let targetSideWidth: CGFloat
+    let targetTopHeight: CGFloat
+    let windowWidth: CGFloat
+    let windowHeight: CGFloat
+    let washColor: Color
+    let atmosphere: ArtworkAtmosphere
+    let foundationOpacity: Double
+    let artworkOpacity: Double
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(sideWidth, topHeight) }
+        set {
+            sideWidth = newValue.first
+            topHeight = newValue.second
+        }
     }
 
-    @ViewBuilder
-    private func artworkContent(size: CGSize) -> some View {
-        if isSidebar {
-            // In sidebar mode, only separate chrome artwork is rendered when enabled.
-            // Uses full vertical atmospheric progression with FrostedGlass active underneath.
-            if let image = chromeImage {
-                let wash = atmosphericWashColor
-                let atmosphere = ArtworkAtmosphere(isDark: isDark, customWashColor: wash, tintOpacity: glassTint.tintOpacity)
+    var body: some View {
+        let effectiveTargetSideWidth = max(targetSideWidth, 1)
+        let effectiveTargetTopHeight = max(targetTopHeight, 1)
 
-                let effectiveWindowWidth = windowWidth > 0
-                    ? windowWidth
-                    : (Links.window?.contentView?.bounds.width ?? 1180)
-                let effectiveWindowHeight = windowHeight > 0
-                    ? windowHeight
-                    : (Links.window?.contentView?.bounds.height ?? 800)
-                let referenceWidth = max(size.width, effectiveWindowWidth)
-                let referenceHeight = max(size.height, effectiveWindowHeight)
-                let heroHeight = min(referenceHeight * 0.72, 760)
-
-                ZStack(alignment: .topLeading) {
-                    // 0. High-density atmosphere foundation
-                    // Sits above FrostedGlass and Glass Tint, below artwork blurs.
-                    // Anchors the atmosphere to NewTabFade.washColor with high density (~0.90)
-                    // so the artwork blurs melt into the foundation while retaining subtle glass shimmer.
-                    // Opacity is governed by artworkFoundationOpacity and global backgroundOpacity.
-                    wash
-                        .opacity(glass.artworkFoundationOpacity * transparency.backgroundOpacity)
-                        .frame(width: size.width, height: size.height)
-
-                    // Complete image-based artwork & atmosphere stack (layers 1, 2, 3):
-                    // Fades together as a coherent artwork surface governed by artworkOpacity.
-                    ZStack(alignment: .topLeading) {
-                        // Virtual atmospheric canvas
-                        // Rendered across the full reference width (window width) and height so blurs
-                        // sample the complete artwork with lateral lighting before being clipped to the sidebar.
-                        ZStack(alignment: .topLeading) {
-                            // 1. Ambient base layer (75pt blur across wide virtual canvas)
-                            AtmosphericBaseLayer(
-                                image: image,
-                                atmosphere: atmosphere,
-                                viewportWidth: referenceWidth,
-                                viewportHeight: referenceHeight
-                            )
-
-                            // 2. Ambient continuation layer (54pt blur across wide virtual canvas)
-                            AtmosphericContinuationLayer(
-                                image: image,
-                                atmosphere: atmosphere,
-                                viewportWidth: referenceWidth,
-                                viewportHeight: referenceHeight,
-                                heroHeight: heroHeight
-                            )
-                        }
-                        .frame(width: referenceWidth, height: referenceHeight, alignment: .topLeading)
-                        .frame(width: size.width, height: size.height, alignment: .topLeading)
-                        .contentShape(Rectangle())
-                        .clipped()
-                        .allowsHitTesting(false)
-
-                        // 3. Sharp hero layer (sidebar-focused framing with dedicated smooth atmospheric handoff)
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: size.width, height: heroHeight, alignment: .top)
-                            .clipped()
-                            .mask {
-                                NewTabFade.sidebarHeroMask()
-                            }
-                    }
-                    .opacity(transparency.artworkOpacity)
-                }
-                .frame(width: size.width, height: size.height, alignment: .topLeading)
-                .contentShape(Rectangle())
-                .clipped()
-                .allowsHitTesting(false)
+        // Interpolation progress: 0.0 = fully horizontal, 1.0 = fully vertical
+        let progress: CGFloat = {
+            if targetSideWidth > 0 {
+                return max(0, min(1, sideWidth / effectiveTargetSideWidth))
+            } else if targetTopHeight > 0 {
+                return max(0, min(1, 1.0 - (topHeight / effectiveTargetTopHeight)))
+            } else {
+                return 0
             }
-        } else {
-            // Horizontal top tab strip mode:
-            // Uses a virtual canvas sized to the real viewport height to compute atmospheric
-            // blurs and hero proportions before clipping only the top 38-52pt visible slice.
-            let useSeparate = overrideArtwork && chromeImage != nil
-            let selectedImage = useSeparate ? chromeImage : (newTabImage ?? chromeImage)
+        }()
 
-            if let image = selectedImage {
-                let wash = atmosphericWashColor
-                let atmosphere = ArtworkAtmosphere(isDark: isDark, customWashColor: wash, tintOpacity: glassTint.tintOpacity)
+        // 1. Centered focal container width:
+        // Horizontal: windowWidth (center = windowWidth / 2)
+        // Vertical: targetSideWidth (center = targetSideWidth / 2)
+        let activeWidth = (1.0 - progress) * windowWidth + progress * effectiveTargetSideWidth
 
-                let effectiveWindowHeight = windowHeight > 0
-                    ? windowHeight
-                    : (Links.window?.contentView?.bounds.height ?? 800)
-                let referenceWidth = size.width
-                let referenceHeight = max(size.height, effectiveWindowHeight - size.height)
-                let heroHeight = min(referenceHeight * 0.72, 760)
+        // 2. Reference & hero heights
+        let horizRefHeight = max(effectiveTargetTopHeight, windowHeight - effectiveTargetTopHeight)
+        let vertRefHeight = windowHeight
+        let refHeight = (1.0 - progress) * horizRefHeight + progress * vertRefHeight
+        let heroHeight = min(refHeight * 0.72, 760)
 
-                ZStack(alignment: .topLeading) {
-                    // 0. High-density atmosphere foundation
-                    wash
-                        .opacity(glass.artworkFoundationOpacity * transparency.backgroundOpacity)
-                        .frame(width: referenceWidth, height: referenceHeight)
+        // 3. Aspect-fill scale targets
+        let imgWidth = max(image.size.width, 1)
+        let imgHeight = max(image.size.height, 1)
+        let horizHeroHeight = min(horizRefHeight * 0.72, 760)
+        let vertHeroHeight = min(vertRefHeight * 0.72, 760)
+        let horizScale = max(windowWidth / imgWidth, horizHeroHeight / imgHeight)
+        let vertScale = max(effectiveTargetSideWidth / imgWidth, vertHeroHeight / imgHeight)
+        let scale = (1.0 - progress) * horizScale + progress * vertScale
+        let fittedWidth = imgWidth * scale
+        let fittedHeight = imgHeight * scale
+        let centerX = activeWidth / 2
 
-                    // Complete image-based artwork & atmosphere stack (layers 1, 2, 3):
-                    // Fades together as a coherent artwork surface governed by artworkOpacity.
-                    ZStack(alignment: .topLeading) {
-                        // 1. Ambient base layer (75pt blur across virtual canvas)
-                        AtmosphericBaseLayer(
-                            image: image,
-                            atmosphere: atmosphere,
-                            viewportWidth: referenceWidth,
-                            viewportHeight: referenceHeight
+        ZStack(alignment: .topLeading) {
+            // 0. High-density atmosphere foundation
+            washColor
+                .opacity(foundationOpacity)
+                .frame(width: windowWidth, height: windowHeight)
+
+            // Complete image-based artwork & atmosphere stack (layers 1, 2, 3):
+            ZStack(alignment: .topLeading) {
+                // 1. Ambient base layer (75pt blur across active focal width)
+                AtmosphericBaseLayer(
+                    image: image,
+                    atmosphere: atmosphere,
+                    viewportWidth: activeWidth,
+                    viewportHeight: refHeight
+                )
+                .frame(width: activeWidth, height: refHeight, alignment: .topLeading)
+
+                // 2. Ambient continuation layer (54pt blur across active focal width)
+                AtmosphericContinuationLayer(
+                    image: image,
+                    atmosphere: atmosphere,
+                    viewportWidth: activeWidth,
+                    viewportHeight: refHeight,
+                    heroHeight: heroHeight
+                )
+
+                // 3. Sharp hero layer (focal center at centerX = activeWidth / 2)
+                Image(nsImage: image)
+                    .resizable()
+                    .frame(width: fittedWidth, height: fittedHeight)
+                    .position(x: centerX, y: fittedHeight / 2)
+                    .mask {
+                        LinearGradient(
+                            stops: [
+                                .init(color: .white, location: 0.0),
+                                .init(color: .white, location: 0.22 * progress),
+                                .init(color: .white.opacity(1.0 - 0.15 * progress), location: 0.22 + 0.16 * progress),
+                                .init(color: .white.opacity(0.70 - 0.30 * progress), location: 0.50 + 0.10 * progress),
+                                .init(color: .clear, location: 1.0 - 0.15 * progress)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
                         )
-
-                        // 2. Ambient continuation layer (54pt blur across virtual canvas)
-                        AtmosphericContinuationLayer(
-                            image: image,
-                            atmosphere: atmosphere,
-                            viewportWidth: referenceWidth,
-                            viewportHeight: referenceHeight,
-                            heroHeight: heroHeight
-                        )
-
-                        // 3. Sharp hero layer (across virtual canvas)
-                        Image(nsImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: referenceWidth, height: heroHeight, alignment: .center)
-                            .clipped()
-                            .mask {
-                                NewTabFade.heroBottomMask()
-                            }
+                        .frame(width: max(windowWidth, fittedWidth), height: heroHeight)
+                        .position(x: centerX, y: heroHeight / 2)
                     }
-                    .opacity(transparency.artworkOpacity)
-                }
-                .frame(width: referenceWidth, height: referenceHeight, alignment: .topLeading)
-                .frame(width: size.width, height: size.height, alignment: .topLeading)
-                .contentShape(Rectangle())
-                .clipped()
-                .allowsHitTesting(false)
             }
+            .opacity(artworkOpacity)
         }
+        .frame(width: windowWidth, height: windowHeight, alignment: .topLeading)
     }
 }

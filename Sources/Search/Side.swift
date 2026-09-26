@@ -91,7 +91,9 @@ struct SideBar: View {
         // Rows on their way to or from another space stay in the column.
         .clipped()
         .onAppear { SpaceSwipe.shared.start(for: browser) }
-        .background(ChromeBackgroundHost(browser: browser, isSidebar: true, landing: landing))
+        .background {
+            if landing { Palette.hover.opacity(0.85) }
+        }
         .environment(\.chromeForeground, chrome)
         .overlay(alignment: .trailing) {
             Rectangle().fill(Palette.hairline).frame(width: 1)

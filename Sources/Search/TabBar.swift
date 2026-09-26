@@ -166,7 +166,9 @@ struct TabBar: View {
         .onDrop(of: [.url, .text], isTargeted: $landing) { providers in
             browser.take(providers)
         }
-        .background(ChromeBackgroundHost(browser: browser, isSidebar: false, landing: landing))
+        .background {
+            if landing { Palette.hover.opacity(0.85) }
+        }
         .animation(Motion.quick, value: landing)
         .animation(Motion.glide, value: browser.activeID)
         // The row makes room for the field on the same spring as everything
