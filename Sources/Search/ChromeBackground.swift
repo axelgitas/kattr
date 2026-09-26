@@ -500,6 +500,12 @@ private struct ChromeBackground: View {
                     Palette.hover
                         .opacity(0.85)
                 }
+
+                // 4. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
+                // Sits above the chrome artwork stack to refract and sample the rendered artwork.
+                // Governed independently by LiquidGlassSettings (style and intensity).
+                NativeLiquidGlassOverlay()
+                    .frame(width: geo.size.width, height: geo.size.height)
             }
             .frame(width: geo.size.width, height: geo.size.height)
             .contentShape(Rectangle())

@@ -265,6 +265,25 @@ struct ContentView: View {
     @State private var keys: Any?
     @State private var window: NSWindow?
     @State private var resting: RestingLights?
+    @State private var restorePresentationOpacity: Double = 1.0
+    @State private var normalMinimizeFallbackOpacity: Double = 0.0
+    @State private var stageTransitionFallbackOpacity: Double = 0.0
+    @State private var omniboxNativeGlassOpacity: Double = 1.0
+
+    private var effectiveFallbackOpacity: Double {
+        max(normalMinimizeFallbackOpacity, stageTransitionFallbackOpacity)
+    }
+
+    /// Restores the native Liquid Glass appearance on the Omnibox using the shared crossfade handoff.
+    private func restoreNativeOmniboxGlass() {
+        if let window, window.isMiniaturized { return }
+        guard omniboxNativeGlassOpacity < 1.0 || effectiveFallbackOpacity > 0.0 else { return }
+        withAnimation(Motion.glassHandoff) {
+            omniboxNativeGlassOpacity = 1.0
+            normalMinimizeFallbackOpacity = 0.0
+            stageTransitionFallbackOpacity = 0.0
+        }
+    }
     /// The room the page leaves for the column and the strip, set without
     /// animation (see `make(room:after:)`); nil only before the window is up.
     @State private var room: CGSize?
@@ -429,17 +448,33 @@ struct ContentView: View {
         .animation(Motion.settle, value: browser.offering)
     }
 
+    /// The dimming overlay for ⌘L, covering the entire window immediately
+    /// with fixed geometry while animating only its opacity.
+    @ViewBuilder
+    private var commandLDimmer: some View {
+        if browser.fieldShowing, !(browser.active?.isBlank ?? true) {
+            Palette.ground.opacity(0.74)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { browser.dismiss() }
+                .transition(.opacity)
+        }
+    }
+
     /// The address field: raised over a page by ⌘L or ⌘K, and standing on its
     /// own whenever a tab has nowhere to be yet.
     @ViewBuilder
     private var field: some View {
         if browser.fieldShowing {
-            Omnibox(browser: browser, over: !(browser.active?.isBlank ?? true))
-                // Centred on the page, not on the window. The column of tabs
-                // is not what the field is standing over, and dimming it along
-                // with the page says otherwise.
-                .padding(.leading, sidebar ? browser.prefs.sideWidth : 0)
-                .transition(.scale(scale: 0.97).combined(with: .opacity))
+            Omnibox(
+                browser: browser,
+                fallbackOpacity: effectiveFallbackOpacity,
+                nativeGlassOpacity: omniboxNativeGlassOpacity
+            )
+            // Centred on the page, not on the window.
+            .padding(.leading, sidebar ? browser.prefs.sideWidth : 0)
+            .transition(.scale(scale: 0.97).combined(with: .opacity))
         }
     }
 
@@ -500,15 +535,76 @@ struct ContentView: View {
                     // the title bar's band is page too.
                     .ignoresSafeArea()
             }
+            .overlay { commandLDimmer }
             .overlay { field }
             .overlay { panels }
             // The field comes on its spring, and goes quickly: once Return
             // is pressed the page is on its way, and the field is not what
             // there is to watch.
             .animation(browser.fieldShowing ? Motion.settle : Motion.quick, value: browser.fieldShowing)
+            .environment(\.liquidGlassRestoreOpacity, restorePresentationOpacity)
             .background(WindowSetup { window = $0; dress($0) })
             .onChange(of: browser.prefs.sidebar) { _, _ in
                 DispatchQueue.main.async { measureLights() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willMiniaturizeNotification)) { note in
+                if let window, (note.object as? NSWindow) === window {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        normalMinimizeFallbackOpacity = 1.0
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { note in
+                if let window, (note.object as? NSWindow) === window {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        restorePresentationOpacity = 0.0
+                        omniboxNativeGlassOpacity = 0.0
+                        normalMinimizeFallbackOpacity = 1.0
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { note in
+                if let window, (note.object as? NSWindow) === window {
+                    if LiquidGlassSettings.shared.style != .off {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            restorePresentationOpacity = 0.0
+                        }
+                        DispatchQueue.main.async {
+                            withAnimation(.easeOut(duration: 0.20)) {
+                                restorePresentationOpacity = 1.0
+                            }
+                        }
+                    } else {
+                        restorePresentationOpacity = 1.0
+                    }
+
+                    DispatchQueue.main.async {
+                        restoreNativeOmniboxGlass()
+                    }
+                }
+            }
+            // Stage Manager exit transition: prepare fallback before native glass is suspended
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
+                guard let window, window.isVisible, !window.isMiniaturized else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    stageTransitionFallbackOpacity = 1.0
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
+                guard let window, (note.object as? NSWindow) === window, window.isVisible, !window.isMiniaturized else { return }
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    stageTransitionFallbackOpacity = 1.0
+                }
             }
             // Stepping away to another app: macOS draws its own resting
             // buttons, and on a light window they come out nearly white. Ours
@@ -518,13 +614,49 @@ struct ContentView: View {
                 resting?.isHidden = false
                 // Only the window you were in, or every window's video would come.
                 browser.appLeft()
+                // If the window remains visible on screen (e.g. Stage Manager off), retire the transition fallback
+                if let window, !window.isMiniaturized {
+                    if window.occlusionState.contains(.visible) {
+                        withAnimation(Motion.glassHandoff) {
+                            stageTransitionFallbackOpacity = 0.0
+                        }
+                    } else {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            omniboxNativeGlassOpacity = 0.0
+                        }
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { note in
+                guard let window, (note.object as? NSWindow) === window, !window.isMiniaturized else { return }
+                if window.occlusionState.contains(.visible), !NSApp.isActive {
+                    withAnimation(Motion.glassHandoff) {
+                        stageTransitionFallbackOpacity = 0.0
+                    }
+                } else if !window.occlusionState.contains(.visible) {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        omniboxNativeGlassOpacity = 0.0
+                    }
+                }
+            }
+            // Returning to active stage: hand cleanly back to native Liquid Glass
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willBecomeActiveNotification)) { _ in
+                restoreNativeOmniboxGlass()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
-                if let window, (note.object as? NSWindow) === window { Browser.front = browser }
+                if let window, (note.object as? NSWindow) === window {
+                    Browser.front = browser
+                    restoreNativeOmniboxGlass()
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 resting?.isHidden = true
                 browser.appBack()
+                restoreNativeOmniboxGlass()
             }
             .onReceive(paletteUpdates.$revision) { _ in
                 let targetWindow = window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }) ?? NSApp.mainWindow

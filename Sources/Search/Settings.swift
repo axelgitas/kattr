@@ -24,6 +24,7 @@ struct SettingsPanel: View {
     @ObservedObject private var surfaceSettings = BrowserSurfaceSettings.shared
     @ObservedObject private var glassTintSettings = AppearanceGlassSettings.shared
     @ObservedObject private var transparencySettings = AppearanceTransparencySettings.shared
+    @ObservedObject private var liquidGlassSettings = LiquidGlassSettings.shared
 
     enum Page: String, CaseIterable, Identifiable {
         case general, tabs, extensions, passwords, downloads, privacy, about
@@ -306,6 +307,59 @@ struct SettingsPanel: View {
                             }
                             .frame(width: 52, alignment: .trailing)
                         }
+                    }
+                    Rule()
+                    Line("Liquid Glass", "Native Liquid Glass refraction layer over the browser surface") {
+                        HStack(spacing: 8) {
+                            Segmented(
+                                options: LiquidGlassStyle.allCases.map { ($0, $0.title) },
+                                selection: Binding(
+                                    get: { liquidGlassSettings.style },
+                                    set: { liquidGlassSettings.style = $0 }
+                                )
+                            )
+
+                            ZStack(alignment: .trailing) {
+                                Pill("Reset") {
+                                    liquidGlassSettings.resetStyle()
+                                }
+                                .fixedSize()
+                                .opacity(liquidGlassSettings.isStyleCustomized ? 1 : 0)
+                                .allowsHitTesting(liquidGlassSettings.isStyleCustomized)
+                            }
+                            .frame(width: 52, alignment: .trailing)
+                        }
+                    }
+                    Rule()
+                    Line("Liquid Glass Intensity", "Optical strength of the native Liquid Glass overlay") {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: Binding(
+                                    get: { liquidGlassSettings.intensity },
+                                    set: { liquidGlassSettings.intensity = $0 }
+                                ),
+                                in: LiquidGlassSettings.intensityRange,
+                                step: LiquidGlassSettings.intensityStep
+                            )
+                            .frame(width: 90)
+                            .disabled(liquidGlassSettings.style == .off)
+
+                            Text("\(Int(round(liquidGlassSettings.intensity * 100)))%")
+                                .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                                .foregroundStyle(Palette.ink)
+                                .frame(width: 34, alignment: .trailing)
+
+                            ZStack(alignment: .trailing) {
+                                Pill("Reset") {
+                                    liquidGlassSettings.resetIntensity()
+                                }
+                                .fixedSize()
+                                .opacity(liquidGlassSettings.isIntensityCustomized ? 1 : 0)
+                                .allowsHitTesting(liquidGlassSettings.isIntensityCustomized)
+                            }
+                            .frame(width: 52, alignment: .trailing)
+                        }
+                        .opacity(liquidGlassSettings.style == .off ? 0.45 : 1)
                     }
                     Rule()
                     Line("Light background", "Canvas color in light mode") {

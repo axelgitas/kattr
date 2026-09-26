@@ -414,6 +414,7 @@ enum Motion {
     static let glide = Animation.spring(response: 0.34, dampingFraction: 0.82)
     static let settle = Animation.spring(response: 0.30, dampingFraction: 0.86)
     static let quick = Animation.easeOut(duration: 0.14)
+    static let glassHandoff = Animation.easeInOut(duration: 0.48)
 }
 
 /// Search's mark — Drice's Subtract.svg, a pill with an S cut out of it,
@@ -551,3 +552,192 @@ struct FrostedGlass: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }
+
+/// A non-interactive, decorative NSGlassEffectView configured for native macOS Liquid Glass appearance.
+/// Only available on macOS 26.0 and later.
+@available(macOS 26.0, *)
+final class DecorativeGlassEffectView: NSGlassEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
+/// A non-interactive NSViewRepresentable wrapping native NSGlassEffectView for macOS 26+.
+/// Provides the Liquid Glass optical layer (refraction, specular highlights, tinting)
+/// while guaranteeing complete hit-test transparency.
+@available(macOS 26.0, *)
+struct NativeLiquidGlassView: NSViewRepresentable {
+    var style: NSGlassEffectView.Style = .regular
+    var cornerRadius: CGFloat = 0
+    var tintColor: NSColor? = nil
+
+    func makeNSView(context: Context) -> DecorativeGlassEffectView {
+        let view = DecorativeGlassEffectView()
+        view.wantsLayer = true
+        view.style = style
+        view.cornerRadius = cornerRadius
+        view.tintColor = tintColor
+        if #available(macOS 27.0, *) {
+            view.effectIsInteractive = false
+        }
+        return view
+    }
+
+    func updateNSView(_ view: DecorativeGlassEffectView, context: Context) {
+        view.style = style
+        view.cornerRadius = cornerRadius
+        view.tintColor = tintColor
+        if #available(macOS 27.0, *) {
+            view.effectIsInteractive = false
+        }
+    }
+}
+
+/// Discrete visual styles for the large-area native Liquid Glass overlay.
+enum LiquidGlassStyle: String, CaseIterable, Identifiable {
+    case off
+    case clear
+    case regular
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .off: return "Off"
+        case .clear: return "Clear"
+        case .regular: return "Regular"
+        }
+    }
+
+    @available(macOS 26.0, *)
+    var appKitStyle: NSGlassEffectView.Style? {
+        switch self {
+        case .off: return nil
+        case .clear: return .clear
+        case .regular: return .regular
+        }
+    }
+}
+
+/// Centralized management and persistence for the large-area Liquid Glass overlay settings.
+/// Governs style (.off, .clear, .regular) and opacity independently of BrowserSurface.
+@MainActor
+final class LiquidGlassSettings: ObservableObject {
+    static let shared = LiquidGlassSettings()
+
+    static let didChange = Notification.Name("SearchLiquidGlassDidChange")
+
+    static let styleKey = "appearance.liquidGlass.style"
+    static let intensityKey = "appearance.liquidGlass.intensity"
+
+    static let defaultStyle: LiquidGlassStyle = .off
+    static let defaultIntensity: Double = 1.0
+
+    static let intensityRange: ClosedRange<Double> = 0.0...1.0
+    static let intensityStep: Double = 0.05
+
+    private init() {}
+
+    /// Large-area Liquid Glass overlay style.
+    var style: LiquidGlassStyle {
+        get {
+            if let raw = Store.settings.string(forKey: Self.styleKey),
+               let parsed = LiquidGlassStyle(rawValue: raw) {
+                return parsed
+            }
+            return Self.defaultStyle
+        }
+        set {
+            Store.settings.set(newValue.rawValue, forKey: Self.styleKey)
+            objectWillChange.send()
+            NotificationCenter.default.post(name: Self.didChange, object: nil)
+        }
+    }
+
+    /// Large-area Liquid Glass optical strength / opacity (0.0 = completely transparent, 1.0 = fully present).
+    var intensity: Double {
+        get {
+            if let val = Store.settings.object(forKey: Self.intensityKey) as? Double {
+                return min(max(val, Self.intensityRange.lowerBound), Self.intensityRange.upperBound)
+            }
+            return Self.defaultIntensity
+        }
+        set {
+            let clamped = min(max(newValue, Self.intensityRange.lowerBound), Self.intensityRange.upperBound)
+            Store.settings.set(clamped, forKey: Self.intensityKey)
+            objectWillChange.send()
+            NotificationCenter.default.post(name: Self.didChange, object: nil)
+        }
+    }
+
+    /// Whether the style setting differs from the default (.off).
+    var isStyleCustomized: Bool {
+        if Store.settings.object(forKey: Self.styleKey) != nil {
+            return style != Self.defaultStyle
+        }
+        return false
+    }
+
+    /// Whether the intensity setting differs from the default (1.0).
+    var isIntensityCustomized: Bool {
+        if Store.settings.object(forKey: Self.intensityKey) != nil {
+            return abs(intensity - Self.defaultIntensity) > 0.001
+        }
+        return false
+    }
+
+    /// Resets the overlay style to .off.
+    func resetStyle() {
+        Store.settings.removeObject(forKey: Self.styleKey)
+        objectWillChange.send()
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+
+    /// Resets the overlay intensity to 1.0 (100%).
+    func resetIntensity() {
+        Store.settings.removeObject(forKey: Self.intensityKey)
+        objectWillChange.send()
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+
+    /// Resets both settings to default.
+    func reset() {
+        resetStyle()
+        resetIntensity()
+    }
+}
+
+private struct LiquidGlassRestoreOpacityKey: EnvironmentKey {
+    static let defaultValue: Double = 1.0
+}
+
+extension EnvironmentValues {
+    var liquidGlassRestoreOpacity: Double {
+        get { self[LiquidGlassRestoreOpacityKey.self] }
+        set { self[LiquidGlassRestoreOpacityKey.self] = newValue }
+    }
+}
+
+/// A non-interactive Liquid Glass overlay view for macOS 26+.
+/// Positioned above artwork layers so NSGlassEffectView refracts and samples the rendered artwork,
+/// governed independently by LiquidGlassSettings (style and intensity) with zero hit-testing.
+struct NativeLiquidGlassOverlay: View {
+    @ObservedObject private var settings = LiquidGlassSettings.shared
+    @Environment(\.liquidGlassRestoreOpacity) private var restoreOpacity
+
+    var body: some View {
+        if #available(macOS 26.0, *),
+           let appKitStyle = settings.style.appKitStyle {
+            NativeLiquidGlassView(
+                style: appKitStyle,
+                cornerRadius: 0,
+                tintColor: nil
+            )
+            .opacity(settings.intensity * restoreOpacity)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+
+

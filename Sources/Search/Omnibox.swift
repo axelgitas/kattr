@@ -9,7 +9,10 @@ struct Omnibox: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var browser: Browser
     /// Raised over a page by ⌘L, rather than standing on an empty tab.
-    let over: Bool
+    var over: Bool = false
+    /// Transient fallback and native glass opacities during minimize/restore
+    var fallbackOpacity: Double = 0.0
+    var nativeGlassOpacity: Double = 1.0
 
     /// The field's own height — the 22 of text and 14 of air above and below it
     /// that `field` lays out — so the list can sit below it without being
@@ -27,15 +30,6 @@ struct Omnibox: View {
 
     var body: some View {
         ZStack {
-            if over {
-                // The page is still there, just out of the way.
-                Rectangle()
-                    .fill(Palette.ground.opacity(0.74))
-                    .ignoresSafeArea()
-                    .onTapGesture { browser.dismiss() }
-                    .transition(.opacity)
-            }
-
             field
                 .frame(width: Metrics.fieldWidth)
                 // The list hangs below the field rather than stacking with it,
@@ -65,6 +59,14 @@ struct Omnibox: View {
         }
     }
 
+    private var defaultHairlineStroke: Color {
+        if #available(macOS 26.0, *) {
+            return .clear
+        } else {
+            return Palette.hairline
+        }
+    }
+
     private var field: some View {
         AddressField(browser: browser)
             .frame(height: 22)
@@ -78,17 +80,36 @@ struct Omnibox: View {
                     // an app.
                     Breath()
 
-                    FrostedGlass(material: .popover, cornerRadius: Self.cornerRadius)
-                        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+                    if #available(macOS 26.0, *) {
+                        // Temporary fallback surrogate: frosted glass + wash, visible during minimize / restore
+                        ZStack {
+                            FrostedGlass(material: .popover, cornerRadius: Self.cornerRadius)
+                                .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
 
-                    RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                        .fill(isDark ? Color.black.opacity(0.22) : Color.white.opacity(0.22))
+                            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                                .fill(isDark ? Color.black.opacity(0.22) : Color.white.opacity(0.22))
+                        }
+                        .opacity(fallbackOpacity)
+
+                        NativeLiquidGlassView(
+                            style: .regular,
+                            cornerRadius: Self.cornerRadius,
+                            tintColor: nil
+                        )
+                        .opacity(nativeGlassOpacity)
+                    } else {
+                        FrostedGlass(material: .popover, cornerRadius: Self.cornerRadius)
+                            .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
+
+                        RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                            .fill(isDark ? Color.black.opacity(0.22) : Color.white.opacity(0.22))
+                    }
                 }
             }
             .overlay(
                 RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
                     .strokeBorder(
-                        refused ? Color.red.opacity(0.35) : Palette.hairline,
+                        refused ? Color.red.opacity(0.35) : defaultHairlineStroke,
                         lineWidth: 1
                     )
                     .allowsHitTesting(false)

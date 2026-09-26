@@ -39,6 +39,12 @@ struct NewTabBackground: View {
                     )
                     .opacity(ready ? 1 : 0)
                 }
+
+                // 3. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
+                // Sits above the New Tab artwork stack to refract and sample the rendered artwork.
+                // Governed independently by LiquidGlassSettings (style and intensity).
+                NativeLiquidGlassOverlay()
+                    .frame(width: proxy.size.width, height: proxy.size.height)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
             .clipped()
