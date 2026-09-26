@@ -81,11 +81,24 @@ struct ArtworkAtmosphere {
 /// never exposes edges. Attenuated with a gradient mask that preserves a nonzero
 /// floor at the bottom, guaranteeing the artwork's dominant color survives
 /// all the way to the bottom of the canvas.
-struct AtmosphericBaseLayer: View {
+/// 1. Artwork-derived ambient base layer (75pt blur).
+/// Fullscreen diffused backdrop scaled slightly beyond viewport bounds so blur
+/// never exposes edges. Attenuated with a gradient mask that preserves a nonzero
+/// floor at the bottom, guaranteeing the artwork's dominant color survives
+/// all the way to the bottom of the canvas.
+struct AtmosphericBaseLayer: View, Animatable {
     let image: NSImage
     let atmosphere: ArtworkAtmosphere
-    let viewportWidth: CGFloat
-    let viewportHeight: CGFloat
+    var viewportWidth: CGFloat
+    var viewportHeight: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(viewportWidth, viewportHeight) }
+        set {
+            viewportWidth = newValue.first
+            viewportHeight = newValue.second
+        }
+    }
 
     init(image: NSImage, atmosphere: ArtworkAtmosphere, size: CGSize) {
         self.image = image
@@ -130,12 +143,21 @@ struct AtmosphericBaseLayer: View {
 /// zero spatial displacement or double-image around the hero transition line.
 /// Diffused with blur and darkened with a wash gradient so that artwork color
 /// continues naturally around and below heroHeight.
-struct AtmosphericContinuationLayer: View {
+struct AtmosphericContinuationLayer: View, Animatable {
     let image: NSImage
     let atmosphere: ArtworkAtmosphere
-    let viewportWidth: CGFloat
-    let viewportHeight: CGFloat
-    let heroHeight: CGFloat
+    var viewportWidth: CGFloat
+    var viewportHeight: CGFloat
+    var heroHeight: CGFloat
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
+        get { AnimatablePair(AnimatablePair(viewportWidth, viewportHeight), heroHeight) }
+        set {
+            viewportWidth = newValue.first.first
+            viewportHeight = newValue.first.second
+            heroHeight = newValue.second
+        }
+    }
 
     init(image: NSImage, atmosphere: ArtworkAtmosphere, size: CGSize, heroHeight: CGFloat) {
         self.image = image

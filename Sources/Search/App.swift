@@ -296,6 +296,10 @@ struct ContentView: View {
         ZStack(alignment: .topLeading) {
             let _ = paletteUpdates.revision
             let isBlank = browser.active == nil || browser.active?.isBlank == true
+            let effectiveRoomWidth = isBlank ? chrome.width : roomed.width
+            let effectiveRoomHeight = isBlank ? chrome.height : roomed.height
+            let stageOffsetX = isBlank ? 0 : chrome.width - roomed.width
+            let stageOffsetY = isBlank ? 0 : chrome.height - roomed.height
             let canvasOpacity: Double = {
                 if isBlank {
                     // Blank tab / new tab: New Tab BrowserSurface manages the stage foundation.
@@ -314,9 +318,9 @@ struct ContentView: View {
             (browser.active?.immersed == true ? Color.black : Palette.ground)
                 .opacity(canvasOpacity)
                 .allowsHitTesting(false)
-                .padding(.leading, roomed.width)
-                .padding(.top, roomed.height)
-                .offset(x: chrome.width - roomed.width, y: chrome.height - roomed.height)
+                .padding(.leading, effectiveRoomWidth)
+                .padding(.top, effectiveRoomHeight)
+                .offset(x: stageOffsetX, y: stageOffsetY)
                 .id("canvas-ground-\(paletteUpdates.revision)")
 
             // One stage, always. It starts beside the column and under the
@@ -327,10 +331,12 @@ struct ContentView: View {
             // it and is resized once, not on every frame of the slide: laid out
             // again thirty times a second, the page juddered along its right
             // edge and overshot the window with the spring (see `room`).
+            // On blank tabs (New Tab artwork), continuous geometry is used directly
+            // so artwork interpolates smoothly throughout the animation.
             stage
-                .padding(.leading, roomed.width)
-                .padding(.top, roomed.height)
-                .offset(x: chrome.width - roomed.width, y: chrome.height - roomed.height)
+                .padding(.leading, effectiveRoomWidth)
+                .padding(.top, effectiveRoomHeight)
+                .offset(x: stageOffsetX, y: stageOffsetY)
 
             // The column of tabs, in the way that has one. It takes the full
             // height, so the traffic lights sit in its own corner rather than
@@ -356,6 +362,9 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .animation(Motion.glide, value: browser.prefs.sidebar)
+        .animation(Motion.glide, value: browser.folded)
+        .animation(Motion.glide, value: browser.prefs.bookmarksBar)
+        .animation(Motion.settle, value: browser.prefs.sideWidth)
         .animation(.easeOut(duration: 0.12), value: browser.active?.immersed)
         .onAppear { if room == nil { room = chrome } }
         .onChange(of: chrome) { old, new in make(room: new, after: old) }

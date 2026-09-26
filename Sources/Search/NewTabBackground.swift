@@ -22,20 +22,28 @@ struct NewTabBackground: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let size = proxy.size
+            let globalMinY = proxy.frame(in: .global).minY
+            let atmosphere = ArtworkAtmosphere(isDark: isDark, tintOpacity: glassTint.tintOpacity)
+
             ZStack(alignment: .topLeading) {
                 // 1. NEW TAB BROWSER SURFACE
                 // Sits strictly at the bottom of the page stack, covering the entire stage area.
                 // Uses the identical material, Palette.ground coloration, and Surface Transparency as Chrome.
                 BrowserSurfaceView(isSidebar: isSidebar)
-                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .frame(width: size.width, height: size.height)
 
                 // 2. NEW TAB ARTWORK STACK
                 // Sits strictly above Browser Surface. Fades with artworkOpacity.
                 if let image {
-                    artworkView(
+                    ArtworkStackView(
                         image: image,
-                        size: proxy.size,
-                        globalMinY: proxy.frame(in: .global).minY
+                        viewportWidth: size.width,
+                        viewportHeight: size.height,
+                        globalMinY: globalMinY,
+                        atmosphere: atmosphere,
+                        artworkOpacity: transparency.artworkOpacity,
+                        surfaceOpacity: BrowserSurfaceSettings.shared.surfaceOpacity
                     )
                     .opacity(ready ? 1 : 0)
                 }
@@ -44,9 +52,9 @@ struct NewTabBackground: View {
                 // Sits above the New Tab artwork stack to refract and sample the rendered artwork.
                 // Governed independently by LiquidGlassSettings (style and intensity).
                 NativeLiquidGlassOverlay()
-                    .frame(width: proxy.size.width, height: proxy.size.height)
+                    .frame(width: size.width, height: size.height)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
+            .frame(width: size.width, height: size.height)
             .clipped()
         }
         .contentShape(Rectangle())
@@ -74,43 +82,85 @@ struct NewTabBackground: View {
             self.ready = false
         }
     }
+}
 
-    @ViewBuilder
-    private func artworkView(image: NSImage, size: CGSize, globalMinY: CGFloat) -> some View {
-        let viewportWidth = size.width
-        let viewportHeight = size.height
-        let heroHeight = min(viewportHeight * 0.72, 760)
+/// Geometry for the entire New Tab artwork stack.
+/// Provides one unified geometry source so all layers (foundation, atmosphere, continuation,
+/// sharp hero, and cutout masks) interpolate synchronously without spatial drift.
+struct ArtworkGeometry {
+    let viewportWidth: CGFloat
+    let viewportHeight: CGFloat
+    let globalMinY: CGFloat
+
+    var viewportSize: CGSize {
+        CGSize(width: viewportWidth, height: viewportHeight)
+    }
+
+    var heroHeight: CGFloat {
+        min(viewportHeight * 0.72, 760)
+    }
+
+    var omniboxClearedRect: CGRect {
+        let omniboxWidth = Metrics.fieldWidth
+        let omniboxHeight = Omnibox.fieldHeight
+        let clearance: CGFloat = 8
+        let omniboxCenterX = viewportWidth / 2
+        let omniboxOriginX = omniboxCenterX - omniboxWidth / 2
+
+        let windowHeight = viewportHeight + globalMinY
+        let omniboxCenterYInWindow = (windowHeight - Omnibox.lift) / 2
+        let omniboxCenterYInPage = omniboxCenterYInWindow - globalMinY
+        let omniboxOriginY = omniboxCenterYInPage - omniboxHeight / 2
+
+        return CGRect(
+            x: omniboxOriginX - clearance,
+            y: omniboxOriginY - clearance,
+            width: omniboxWidth + 2 * clearance,
+            height: max(omniboxOriginY + omniboxHeight, heroHeight) - (omniboxOriginY - clearance)
+        )
+    }
+
+    var feather: CGFloat {
+        min(max(heroHeight * 0.52, 120), 280)
+    }
+}
+
+/// Complete unified artwork stack view conforming to Animatable.
+/// Interpolates viewport dimensions and window vertical offset continuously across layout transitions.
+private struct ArtworkStackView: View, Animatable {
+    let image: NSImage
+    var viewportWidth: CGFloat
+    var viewportHeight: CGFloat
+    var globalMinY: CGFloat
+    let atmosphere: ArtworkAtmosphere
+    let artworkOpacity: Double
+    let surfaceOpacity: Double
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
+        get {
+            AnimatablePair(AnimatablePair(viewportWidth, viewportHeight), globalMinY)
+        }
+        set {
+            viewportWidth = newValue.first.first
+            viewportHeight = newValue.first.second
+            globalMinY = newValue.second
+        }
+    }
+
+    var body: some View {
+        let geometry = ArtworkGeometry(
+            viewportWidth: viewportWidth,
+            viewportHeight: viewportHeight,
+            globalMinY: globalMinY
+        )
+
+        let heroHeight = geometry.heroHeight
+        let clearedRect = geometry.omniboxClearedRect
+        let clearance: CGFloat = 8
+        let cornerRadius = Omnibox.cornerRadius + clearance
+        let feather = geometry.feather
 
         if viewportWidth > 0 && viewportHeight > 0 && heroHeight > 0 {
-            // Omnibox geometry derived from Search's actual Omnibox and Metrics layout.
-            let omniboxWidth = Metrics.fieldWidth
-            let omniboxHeight = Omnibox.fieldHeight
-            let clearance: CGFloat = 8
-            let cornerRadius = Omnibox.cornerRadius + clearance
-            let feather = min(max(heroHeight * 0.52, 120), 280)
-
-            // Centered horizontally within the page viewport.
-            let omniboxCenterX = viewportWidth / 2
-            let omniboxOriginX = omniboxCenterX - omniboxWidth / 2
-
-            // Omnibox is centered in the window with Omnibox.lift bottom padding.
-            // In page coordinates (offset by globalMinY from window top):
-            let windowHeight = viewportHeight + globalMinY
-            let omniboxCenterYInWindow = (windowHeight - Omnibox.lift) / 2
-            let omniboxCenterYInPage = omniboxCenterYInWindow - globalMinY
-            let omniboxOriginY = omniboxCenterYInPage - omniboxHeight / 2
-
-            // The cutout region clears the omnibox and extends through the hero's bottom,
-            // preventing the image from fading back in below the field.
-            let clearedRect = CGRect(
-                x: omniboxOriginX - clearance,
-                y: omniboxOriginY - clearance,
-                width: omniboxWidth + 2 * clearance,
-                height: max(omniboxOriginY + omniboxHeight, heroHeight) - (omniboxOriginY - clearance)
-            )
-
-            let atmosphere = ArtworkAtmosphere(isDark: isDark, tintOpacity: glassTint.tintOpacity)
-
             ZStack(alignment: .topLeading) {
                 // 0. Base canvas foundation:
                 // Dark appearance anchors to pure black so that the artwork stains the canvas
@@ -119,7 +169,7 @@ struct NewTabBackground: View {
                 // readable, gently tinted paper canvas.
                 // Opacity is governed globally by BrowserSurfaceSettings.surfaceOpacity.
                 atmosphere.washColor
-                    .opacity(BrowserSurfaceSettings.shared.surfaceOpacity)
+                    .opacity(surfaceOpacity)
                     .frame(width: viewportWidth, height: viewportHeight)
 
                 // The complete image-based artwork & atmosphere stack (layers 1, 2, 3):
@@ -165,7 +215,7 @@ struct NewTabBackground: View {
                             }
                         }
                 }
-                .opacity(transparency.artworkOpacity)
+                .opacity(artworkOpacity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -175,8 +225,25 @@ struct NewTabBackground: View {
 /// A shape matching the clearance boundary around the omnibox, rounded at the top
 /// and extending open through the bottom of the hero area.
 private struct CutoutMaskShape: Shape {
-    let cutoutRect: CGRect
-    let cornerRadius: CGFloat
+    var cutoutRect: CGRect
+    var cornerRadius: CGFloat
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
+        get {
+            AnimatablePair(
+                AnimatablePair(cutoutRect.origin.x, cutoutRect.origin.y),
+                AnimatablePair(cutoutRect.size.width, cutoutRect.size.height)
+            )
+        }
+        set {
+            cutoutRect = CGRect(
+                x: newValue.first.first,
+                y: newValue.first.second,
+                width: newValue.second.first,
+                height: newValue.second.second
+            )
+        }
+    }
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
