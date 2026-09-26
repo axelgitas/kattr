@@ -45,9 +45,11 @@ BUILD="$(date +%Y%m%d%H%M)"
 # The oldest macOS this runs on — in the plist, and in the appcast so an
 # older Mac is not handed a build it can't open.
 MINIMUM="14.0"
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || echo "27.0")"
 
-swift build -c "$CONFIG"
+SDK_VERSION="$SDK_VERSION" swift build -c "$CONFIG"
 BINARY=".build/$CONFIG/Search"
+
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"

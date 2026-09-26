@@ -87,8 +87,17 @@ final class Lights: NSObject {
             frame.origin.y = window.frame.height - height
             container.frame = frame
         }
+        // Ensure none of the titlebar views clip the native specular highlight
+        // (which bleeds ~4pt outside the 14x14 control frame).
+        container.clipsToBounds = false
+        container.layer?.masksToBounds = false
+        bar.clipsToBounds = false
+        bar.layer?.masksToBounds = false
+
         // Only the row moves; the spacing is AppKit's, from its first layout.
         for (index, button) in buttons.enumerated() {
+            button.clipsToBounds = false
+            button.layer?.masksToBounds = false
             let size = button.frame.size
             let origin = NSPoint(
                 x: Lights.centre.x - size.width / 2 + CGFloat(index) * spacing,

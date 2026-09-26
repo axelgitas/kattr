@@ -844,6 +844,12 @@ struct ContentView: View {
 
     /// Put the resting circles in the title bar, exactly over the buttons.
     private func measureLights() {
+        if #available(macOS 26, *) {
+            resting?.removeFromSuperview()
+            resting = nil
+            return
+        }
+
         guard let window,
               let close = window.standardWindowButton(.closeButton),
               let titlebar = close.superview
@@ -905,6 +911,8 @@ struct ContentView: View {
             frame.addSubview(container, positioned: .above, relativeTo: content)
             container.wantsLayer = true
             container.layer?.zPosition = 10
+            container.clipsToBounds = false
+            container.layer?.masksToBounds = false
         }
     }
 
