@@ -340,6 +340,29 @@ struct SettingsPanel: View {
                         .opacity(liquidGlassSettings.style == .off ? 0.45 : 1)
                     }
                     Rule()
+                    Line("Liquid Glass Position", "Render layer position relative to artwork") {
+                        HStack(spacing: 8) {
+                            Segmented(
+                                options: LiquidGlassPosition.allCases.map { ($0, $0.title) },
+                                selection: Binding(
+                                    get: { liquidGlassSettings.position },
+                                    set: { liquidGlassSettings.position = $0 }
+                                )
+                            )
+
+                            ZStack(alignment: .trailing) {
+                                Pill("Reset") {
+                                    liquidGlassSettings.resetPosition()
+                                }
+                                .fixedSize()
+                                .opacity(liquidGlassSettings.isPositionCustomized ? 1 : 0)
+                                .allowsHitTesting(liquidGlassSettings.isPositionCustomized)
+                            }
+                            .frame(width: 52, alignment: .trailing)
+                        }
+                        .opacity(liquidGlassSettings.style == .off ? 0.45 : 1)
+                    }
+                    Rule()
                     Line("Light background", "Canvas color in light mode") {
                         HStack(spacing: 8) {
                             ColorPicker("", selection: lightBinding, supportsOpacity: false)

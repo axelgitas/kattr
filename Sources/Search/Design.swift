@@ -635,8 +635,23 @@ enum LiquidGlassStyle: String, CaseIterable, Identifiable {
     }
 }
 
+/// Large-area Liquid Glass layer position relative to artwork.
+enum LiquidGlassPosition: String, CaseIterable, Identifiable {
+    case belowArtwork
+    case aboveArtwork
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .belowArtwork: return "Below Artwork"
+        case .aboveArtwork: return "Above Artwork"
+        }
+    }
+}
+
 /// Centralized management and persistence for the large-area Liquid Glass overlay settings.
-/// Governs style (.off, .clear, .regular) and opacity independently of BrowserSurface.
+/// Governs style (.off, .clear, .regular), opacity, and position independently of BrowserSurface.
 @MainActor
 final class LiquidGlassSettings: ObservableObject {
     static let shared = LiquidGlassSettings()
@@ -645,9 +660,11 @@ final class LiquidGlassSettings: ObservableObject {
 
     static let styleKey = "appearance.liquidGlass.style"
     static let intensityKey = "appearance.liquidGlass.intensity"
+    static let positionKey = "appearance.liquidGlassPosition"
 
     static let defaultStyle: LiquidGlassStyle = .off
     static let defaultIntensity: Double = 1.0
+    static let defaultPosition: LiquidGlassPosition = .aboveArtwork
 
     static let intensityRange: ClosedRange<Double> = 0.0...1.0
     static let intensityStep: Double = 0.05
@@ -686,6 +703,22 @@ final class LiquidGlassSettings: ObservableObject {
         }
     }
 
+    /// Large-area Liquid Glass layer position relative to artwork.
+    var position: LiquidGlassPosition {
+        get {
+            if let raw = Store.settings.string(forKey: Self.positionKey),
+               let parsed = LiquidGlassPosition(rawValue: raw) {
+                return parsed
+            }
+            return Self.defaultPosition
+        }
+        set {
+            Store.settings.set(newValue.rawValue, forKey: Self.positionKey)
+            objectWillChange.send()
+            NotificationCenter.default.post(name: Self.didChange, object: nil)
+        }
+    }
+
     /// Whether the style setting differs from the default (.off).
     var isStyleCustomized: Bool {
         if Store.settings.object(forKey: Self.styleKey) != nil {
@@ -698,6 +731,14 @@ final class LiquidGlassSettings: ObservableObject {
     var isIntensityCustomized: Bool {
         if Store.settings.object(forKey: Self.intensityKey) != nil {
             return abs(intensity - Self.defaultIntensity) > 0.001
+        }
+        return false
+    }
+
+    /// Whether the position setting differs from the default (.aboveArtwork).
+    var isPositionCustomized: Bool {
+        if Store.settings.object(forKey: Self.positionKey) != nil {
+            return position != Self.defaultPosition
         }
         return false
     }
@@ -716,10 +757,18 @@ final class LiquidGlassSettings: ObservableObject {
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 
-    /// Resets both settings to default.
+    /// Resets the overlay position to .aboveArtwork.
+    func resetPosition() {
+        Store.settings.removeObject(forKey: Self.positionKey)
+        objectWillChange.send()
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+
+    /// Resets all settings to default.
     func reset() {
         resetStyle()
         resetIntensity()
+        resetPosition()
     }
 }
 

@@ -500,6 +500,7 @@ struct PersistentChromeBackground: View {
     let topHeight: CGFloat
     var targetSideWidth: CGFloat = 210
     var targetTopHeight: CGFloat = 44
+    @ObservedObject private var liquidGlass = LiquidGlassSettings.shared
 
     var body: some View {
         GeometryReader { geo in
@@ -519,13 +520,15 @@ struct PersistentChromeBackground: View {
                         windowSize: geo.size
                     )
                     .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight))
+                    .zIndex(liquidGlass.position == .aboveArtwork ? 0 : 1)
                 }
 
                 // 2. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
-                // Sits above the chrome artwork stack to refract and sample the rendered artwork.
+                // Positioned above or below the chrome artwork stack according to liquidGlass.position.
                 NativeLiquidGlassOverlay()
                     .frame(width: geo.size.width, height: geo.size.height)
                     .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight))
+                    .zIndex(liquidGlass.position == .aboveArtwork ? 1 : 0)
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }

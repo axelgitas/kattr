@@ -63,6 +63,7 @@ struct NewTabBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var transparency = AppearanceTransparencySettings.shared
     @ObservedObject private var glassTint = AppearanceGlassSettings.shared
+    @ObservedObject private var liquidGlass = LiquidGlassSettings.shared
     @State private var image: NSImage? = NewTabArtwork.current()
     @State private var ready = false
 
@@ -89,13 +90,15 @@ struct NewTabBackground: View {
                         artworkOpacity: transparency.artworkOpacity
                     )
                     .opacity(ready ? 1 : 0)
+                    .zIndex(liquidGlass.position == .aboveArtwork ? 0 : 1)
                 }
 
-                // 3. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
-                // Sits above the New Tab artwork stack to refract and sample the rendered artwork.
-                // Governed independently by LiquidGlassSettings (style and intensity).
+                // 2. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
+                // Positioned above or below the artwork stack according to liquidGlass.position.
+                // Governed independently by LiquidGlassSettings (style, intensity, and position).
                 NativeLiquidGlassOverlay()
                     .frame(width: size.width, height: size.height)
+                    .zIndex(liquidGlass.position == .aboveArtwork ? 1 : 0)
             }
             .frame(width: size.width, height: size.height)
             .clipped()
