@@ -203,26 +203,17 @@ private struct ArtworkStackView: View, Animatable {
         let feather = geometry.feather
 
         if viewportWidth > 0 && viewportHeight > 0 && heroHeight > 0 {
+            // The complete image-based artwork & atmosphere stack (layers 1, 2, 3):
+            // Fades together as a coherent artwork surface governed by artworkOpacity.
+            // Full-area background foundation is owned exclusively by GlassTintSurface.
             ZStack(alignment: .topLeading) {
-                // 0. Base canvas foundation:
-                // Dark appearance anchors to pure black so that the artwork stains the canvas
-                // with deep, rich midnight hues without desaturating into Search's neutral gray.
-                // Light appearance anchors to Palette.ground (pure white) for a clean,
-                // readable, gently tinted paper canvas.
-                atmosphere.washColor
-                    .opacity(artworkOpacity)
-                    .frame(width: viewportWidth, height: viewportHeight)
-
-                // The complete image-based artwork & atmosphere stack (layers 1, 2, 3):
-                // Fades together as a coherent artwork surface governed by artworkOpacity.
-                ZStack(alignment: .topLeading) {
-                    // 1. Artwork-derived ambient base:
-                    AtmosphericBaseLayer(
-                        image: image,
-                        atmosphere: atmosphere,
-                        viewportWidth: viewportWidth,
-                        viewportHeight: viewportHeight
-                    )
+                // 1. Artwork-derived ambient base:
+                AtmosphericBaseLayer(
+                    image: image,
+                    atmosphere: atmosphere,
+                    viewportWidth: viewportWidth,
+                    viewportHeight: viewportHeight
+                )
 
                     // 2. Ambient continuation layer:
                     AtmosphericContinuationLayer(
@@ -255,9 +246,8 @@ private struct ArtworkStackView: View, Animatable {
                                 .luminanceToAlpha()
                             }
                         }
-                }
-                .opacity(artworkOpacity)
             }
+            .opacity(artworkOpacity)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }

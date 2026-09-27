@@ -337,6 +337,10 @@ struct ContentView: View {
             // mounted continuously with fixed .headerView material, behindWindow blending, and continuous Blur Surface opacity.
             BrowserSurfaceView()
 
+            // Independent physical Glass Tint layer underneath artwork and chrome,
+            // providing continuous background color tinting governed by AppearanceGlassSettings.shared.tintOpacity.
+            GlassTintSurface()
+
             // One stage, always. It starts beside the column and under the
             // strip, not behind them — a page sliding beneath floating chrome
             // is a browser showing off, and it costs a compositing pass.

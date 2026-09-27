@@ -14,7 +14,7 @@ final class AppearanceGlassSettings: ObservableObject {
     nonisolated static let legacyTintKey = "appearance.chrome.tintOpacity"
 
     nonisolated static let defaultTint: Double = 0.35
-    nonisolated static let tintRange: ClosedRange<Double> = 0.10...1.00
+    nonisolated static let tintRange: ClosedRange<Double> = 0.00...1.00
     nonisolated static let tintStep: Double = 0.05
 
     private init() {}
@@ -56,5 +56,22 @@ final class AppearanceGlassSettings: ObservableObject {
         Store.settings.removeObject(forKey: Self.legacyTintKey)
         objectWillChange.send()
         NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+}
+
+/// Physical Glass Tint layer sitting above colorless BrowserSurface and below artwork.
+/// Provides independent color tinting using the canonical resolved Background Color (Palette.ground).
+struct GlassTintSurface: View {
+    @ObservedObject private var glassTint = AppearanceGlassSettings.shared
+    @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Palette.ground
+            .opacity(glassTint.tintOpacity)
+            .id("glass-tint-\(paletteUpdates.revision)")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
     }
 }

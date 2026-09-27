@@ -544,7 +544,6 @@ private struct ChromeArtworkHost: View {
     let targetTopHeight: CGFloat
     let windowSize: CGSize
 
-    @ObservedObject private var glass = ChromeGlassSettings.shared
     @ObservedObject private var glassTint = AppearanceGlassSettings.shared
     @ObservedObject private var transparency = AppearanceTransparencySettings.shared
 
@@ -598,9 +597,7 @@ private struct ChromeArtworkHost: View {
                     targetTopHeight: targetTopHeight,
                     windowWidth: windowSize.width,
                     windowHeight: windowSize.height,
-                    washColor: wash,
                     atmosphere: atmosphere,
-                    foundationOpacity: glass.artworkFoundationOpacity * transparency.artworkOpacity,
                     artworkOpacity: transparency.artworkOpacity
                 )
                 .opacity(isShowingArtwork ? 1.0 : 0.0)
@@ -655,9 +652,7 @@ struct ContinuousChromeArtworkView: View, Animatable {
     let targetTopHeight: CGFloat
     let windowWidth: CGFloat
     let windowHeight: CGFloat
-    let washColor: Color
     let atmosphere: ArtworkAtmosphere
-    let foundationOpacity: Double
     let artworkOpacity: Double
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
@@ -706,55 +701,49 @@ struct ContinuousChromeArtworkView: View, Animatable {
         let fittedHeight = imgHeight * scale
         let centerX = activeWidth / 2
 
+        // Complete image-based artwork & atmosphere stack (layers 1, 2, 3):
+        // Full-area background foundation is owned exclusively by GlassTintSurface.
         ZStack(alignment: .topLeading) {
-            // 0. High-density atmosphere foundation
-            washColor
-                .opacity(foundationOpacity)
-                .frame(width: windowWidth, height: windowHeight)
+            // 1. Ambient base layer (75pt blur across active focal width)
+            AtmosphericBaseLayer(
+                image: image,
+                atmosphere: atmosphere,
+                viewportWidth: activeWidth,
+                viewportHeight: refHeight
+            )
+            .frame(width: activeWidth, height: refHeight, alignment: .topLeading)
 
-            // Complete image-based artwork & atmosphere stack (layers 1, 2, 3):
-            ZStack(alignment: .topLeading) {
-                // 1. Ambient base layer (75pt blur across active focal width)
-                AtmosphericBaseLayer(
-                    image: image,
-                    atmosphere: atmosphere,
-                    viewportWidth: activeWidth,
-                    viewportHeight: refHeight
-                )
-                .frame(width: activeWidth, height: refHeight, alignment: .topLeading)
+            // 2. Ambient continuation layer (54pt blur across active focal width)
+            AtmosphericContinuationLayer(
+                image: image,
+                atmosphere: atmosphere,
+                viewportWidth: activeWidth,
+                viewportHeight: refHeight,
+                heroHeight: heroHeight
+            )
 
-                // 2. Ambient continuation layer (54pt blur across active focal width)
-                AtmosphericContinuationLayer(
-                    image: image,
-                    atmosphere: atmosphere,
-                    viewportWidth: activeWidth,
-                    viewportHeight: refHeight,
-                    heroHeight: heroHeight
-                )
-
-                // 3. Sharp hero layer (focal center at centerX = activeWidth / 2)
-                Image(nsImage: image)
-                    .resizable()
-                    .frame(width: fittedWidth, height: fittedHeight)
-                    .position(x: centerX, y: fittedHeight / 2)
-                    .mask {
-                        LinearGradient(
-                            stops: [
-                                .init(color: .white, location: 0.0),
-                                .init(color: .white, location: 0.22 * progress),
-                                .init(color: .white.opacity(1.0 - 0.15 * progress), location: 0.22 + 0.16 * progress),
-                                .init(color: .white.opacity(0.70 - 0.30 * progress), location: 0.50 + 0.10 * progress),
-                                .init(color: .clear, location: 1.0 - 0.15 * progress)
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(width: max(windowWidth, fittedWidth), height: heroHeight)
-                        .position(x: centerX, y: heroHeight / 2)
-                    }
-            }
-            .opacity(artworkOpacity)
+            // 3. Sharp hero layer (focal center at centerX = activeWidth / 2)
+            Image(nsImage: image)
+                .resizable()
+                .frame(width: fittedWidth, height: fittedHeight)
+                .position(x: centerX, y: fittedHeight / 2)
+                .mask {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .white, location: 0.0),
+                            .init(color: .white, location: 0.22 * progress),
+                            .init(color: .white.opacity(1.0 - 0.15 * progress), location: 0.22 + 0.16 * progress),
+                            .init(color: .white.opacity(0.70 - 0.30 * progress), location: 0.50 + 0.10 * progress),
+                            .init(color: .clear, location: 1.0 - 0.15 * progress)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(width: max(windowWidth, fittedWidth), height: heroHeight)
+                    .position(x: centerX, y: heroHeight / 2)
+                }
         }
+        .opacity(artworkOpacity)
         .frame(width: windowWidth, height: windowHeight, alignment: .topLeading)
     }
 }
