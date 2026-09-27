@@ -32,6 +32,11 @@ struct BookmarksBar: View {
                             browser.visit(url)
                         }
                     }
+                    .overlay {
+                        if let url = node.url.flatMap(URL.init(string:)) {
+                            MiddleClick { browser.pickBookmark(url, inNewTab: true) }
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 10)

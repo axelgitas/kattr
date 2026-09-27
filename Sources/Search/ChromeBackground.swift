@@ -469,6 +469,7 @@ enum ChromeArtwork {
 struct ChromeArtworkMaskShape: Shape {
     var sideWidth: CGFloat
     var topHeight: CGFloat
+    var onRight: Bool = false
 
     var animatableData: AnimatablePair<CGFloat, CGFloat> {
         get { AnimatablePair(sideWidth, topHeight) }
@@ -481,7 +482,11 @@ struct ChromeArtworkMaskShape: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         if sideWidth > 0 {
-            path.addRect(CGRect(x: 0, y: 0, width: sideWidth, height: rect.height))
+            if onRight {
+                path.addRect(CGRect(x: rect.width - sideWidth, y: 0, width: sideWidth, height: rect.height))
+            } else {
+                path.addRect(CGRect(x: 0, y: 0, width: sideWidth, height: rect.height))
+            }
         }
         if topHeight > 0 {
             path.addRect(CGRect(x: 0, y: 0, width: rect.width, height: topHeight))
@@ -498,7 +503,12 @@ struct PersistentChromeBackground: View {
     let topHeight: CGFloat
     var targetSideWidth: CGFloat = 210
     var targetTopHeight: CGFloat = 44
+    var onRight: Bool? = nil
     @ObservedObject private var liquidGlass = LiquidGlassSettings.shared
+
+    private var effectiveOnRight: Bool {
+        onRight ?? (browser.prefs.sidebar && browser.prefs.sidePosition == .right)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -517,7 +527,7 @@ struct PersistentChromeBackground: View {
                         targetTopHeight: targetTopHeight,
                         windowSize: geo.size
                     )
-                    .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight))
+                    .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight, onRight: effectiveOnRight))
                     .zIndex(liquidGlass.position == .aboveArtwork ? 0 : 1)
                 }
 
@@ -525,7 +535,7 @@ struct PersistentChromeBackground: View {
                 // Positioned above or below the chrome artwork stack according to liquidGlass.position.
                 NativeLiquidGlassOverlay()
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight))
+                    .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight, onRight: effectiveOnRight))
                     .zIndex(liquidGlass.position == .aboveArtwork ? 1 : 0)
             }
             .frame(width: geo.size.width, height: geo.size.height)
@@ -680,9 +690,9 @@ struct ContinuousChromeArtworkView: View, Animatable {
         }()
 
         // 1. Centered focal container width:
-        // Horizontal: windowWidth (center = windowWidth / 2)
-        // Vertical: targetSideWidth (center = targetSideWidth / 2)
-        let activeWidth = (1.0 - progress) * windowWidth + progress * effectiveTargetSideWidth
+        // Continuous full-window canvas spanning the entire window so left, right, and top masks
+        // crop from the exact same stable full-window wallpaper coordinates without recentering.
+        let activeWidth = windowWidth
 
         // 2. Reference & hero heights
         let horizRefHeight = max(effectiveTargetTopHeight, windowHeight - effectiveTargetTopHeight)
@@ -693,14 +703,10 @@ struct ContinuousChromeArtworkView: View, Animatable {
         // 3. Aspect-fill scale targets
         let imgWidth = max(image.size.width, 1)
         let imgHeight = max(image.size.height, 1)
-        let horizHeroHeight = min(horizRefHeight * 0.72, 760)
-        let vertHeroHeight = min(vertRefHeight * 0.72, 760)
-        let horizScale = max(windowWidth / imgWidth, horizHeroHeight / imgHeight)
-        let vertScale = max(effectiveTargetSideWidth / imgWidth, vertHeroHeight / imgHeight)
-        let scale = (1.0 - progress) * horizScale + progress * vertScale
+        let scale = max(windowWidth / imgWidth, heroHeight / imgHeight)
         let fittedWidth = imgWidth * scale
         let fittedHeight = imgHeight * scale
-        let centerX = activeWidth / 2
+        let centerX = windowWidth / 2
 
         // Complete image-based artwork & atmosphere stack (layers 1, 2, 3):
         // Full-area background foundation is owned exclusively by GlassTintSurface.

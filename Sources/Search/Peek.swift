@@ -31,6 +31,9 @@ extension Browser {
     func keepPeek() {
         guard let page = peekTab else { return }
         let place = placeForNew()
+        // Kept from a grouped tab, it joins that group, as a link opened
+        // from there does (see open).
+        if prefs.usesTabGroups, !page.shy, let from = active { page.groupID = from.groupID }
         withAnimation(Motion.quick) { peekTab = nil }
         insert(page, at: place)
         select(page)
@@ -77,7 +80,7 @@ struct PeekPanel: View {
                         .shadow(color: .black.opacity(0.25), radius: 30, y: 10)
                     VStack(spacing: 8) {
                         Knob("xmark", help: "Close (esc)") { browser.closePeek() }
-                        Knob("arrow.up.left.and.arrow.down.right", help: "Open as a tab") { browser.keepPeek() }
+                        Knob("arrow.up.left.and.arrow.down.right", help: "Open as a tab (⌘↩)") { browser.keepPeek() }
                     }
                 }
                 .frame(width: geo.size.width * 0.82, height: geo.size.height * 0.86)

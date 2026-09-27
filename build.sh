@@ -54,6 +54,9 @@ BINARY=".build/$CONFIG/$NAME"
 rm -rf "$APP" build/Search.app build/Search.app.dSYM
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$NAME"
+# The AppleScript dictionary (Scripting.swift): read-only, tabs' addresses
+# and titles. The plist below points to it.
+cp Search.sdef "$APP/Contents/Resources/"
 
 # Symbols stay out of the app. The linker leaves every function's name and a
 # map back to the source in the binary — 15,000 entries, more than half of
@@ -99,6 +102,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHumanReadableCopyright</key><string>© Office Commun · $NAME</string>
   <key>NSHighResolutionCapable</key><true/>
+  <key>NSAppleScriptEnabled</key><true/>
+  <key>OSAScriptingDefinition</key><string>Search.sdef</string>
   <!-- Owning http and https is what sends a link clicked in Mail here.
        Appearing in Desktop & Dock → Default web browser also needs the
        XHTML document type below. -->
@@ -167,7 +172,10 @@ if [ -n "$IDENTITY" ]; then
     --sign "$IDENTITY" "$APP"
   echo "signed as: $IDENTITY"
 else
-  codesign --force --deep --sign - "$APP" 2>/dev/null || true
+  # A build that cannot sign at all is not a build: `|| true` here let one
+  # through as though it had finished, leaving a bundle that would not open.
+  # set -e stops it now, with codesign's own words above.
+  codesign --force --deep --sign - "$APP"
   [ "$STEP" != "app" ] && echo "no Developer ID certificate found — the DMG will only open on this Mac" >&2
 fi
 
@@ -218,6 +226,8 @@ echo "packed: $ZIP"
 
 # What the updater reads. The first paragraph of NOTES.md, with the two
 # characters JSON minds escaped, is the line under the version in Settings.
+# Written last — after notarisation has stapled its ticket to the DMG, which
+# changes it — so the DMG's hash is the one people download.
 BASE="${SEARCH_DOWNLOAD_URL:-https://officecommun.com/search}"
 BASE="${BASE%/}"
 NOTES=""
@@ -225,19 +235,38 @@ if [ -f NOTES.md ]; then
   NOTES="$(awk 'NF { printf "%s%s", (n++ ? " " : ""), $0; next } n { exit }' NOTES.md \
     | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
 fi
-cat > build/appcast.json <<JSON
+write_appcast() {
+  local DMGSHA
+  DMGSHA="$(shasum -a 256 "$DMG" | cut -d' ' -f1)"
+  cat > build/appcast.json <<JSON
 {
   "version": "$VERSION",
   "build": $BUILD,
   "url": "$BASE/$NAME.zip",
   "dmg": "$BASE/$NAME.dmg",
   "sha256": "$SHA",
+  "dmgSha256": "$DMGSHA",
   "notes": "$NOTES",
   "minimumSystemVersion": "$MINIMUM"
 }
 JSON
-echo "wrote: build/appcast.json ($VERSION, build $BUILD)"
-[ "$STEP" = "dmg" ] && exit 0
+  echo "wrote: build/appcast.json ($VERSION, build $BUILD)"
+  # The same file, signed with the Developer ID that signs the app (codesign
+  # keeps the signature in the file's extended attributes, ditto carries them
+  # in the ZIP). Builds from 1.0.4 read only this one; older ones read the
+  # plain file beside it. No key of its own to keep, or to lose.
+  rm -f build/appcast.json.zip
+  if [ -n "$IDENTITY" ]; then
+    local SIGNED
+    SIGNED="$(mktemp -d)"
+    cp build/appcast.json "$SIGNED/appcast.json"
+    codesign --force --timestamp --sign "$IDENTITY" --identifier com.officecommun.search.appcast "$SIGNED/appcast.json"
+    ditto -c -k --sequesterRsrc "$SIGNED/appcast.json" build/appcast.json.zip
+    rm -rf "$SIGNED"
+    echo "signed: build/appcast.json.zip"
+  fi
+}
+if [ "$STEP" = "dmg" ]; then write_appcast; exit 0; fi
 
 # Notarisation: Apple looks both over. The ticket is stapled to the image,
 # so it opens on a Mac that has never seen this app and is offline; the ZIP
@@ -247,4 +276,5 @@ for FILE in "$DMG" "$ZIP"; do
   xcrun notarytool submit "$FILE" --keychain-profile "${SEARCH_NOTARY_PROFILE:-search}" --wait
 done
 xcrun stapler staple "$DMG"
-echo "shipped: $DMG, $ZIP and build/appcast.json — ./publish.sh <folder> puts them on the site"
+write_appcast
+echo "shipped: $DMG, $ZIP, build/appcast.json and its signed ZIP — ./publish.sh <folder> puts them on the site"
