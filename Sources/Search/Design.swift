@@ -415,6 +415,10 @@ enum Motion {
     static let settle = Animation.spring(response: 0.30, dampingFraction: 0.86)
     static let quick = Animation.easeOut(duration: 0.14)
     static let glassHandoff = Animation.easeInOut(duration: 0.48)
+    /// Calibrated bridge duration for Stage Manager compositor fly-in transition
+    static let stageGlassRestoreDelay: TimeInterval = 0.85
+    /// Rapid handoff crossfade once Stage Manager window has landed on stage
+    static let stageGlassHandoff = Animation.easeInOut(duration: 0.18)
 }
 
 /// Search's mark — Drice's Subtract.svg, a pill with an S cut out of it,
