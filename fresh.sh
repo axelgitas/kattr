@@ -36,5 +36,5 @@ if [ "${1:-}" != "again" ]; then
   echo "world \"$WORLD\" wiped"
 fi
 
-[ -d "build/Search.app" ] || ./build.sh release
-open -n --env SEARCH_PROBE="$WORLD" "build/Search.app"
+[ -d "build/Kattr.app" ] || ./build.sh release
+open -n --env SEARCH_PROBE="$WORLD" "build/Kattr.app"

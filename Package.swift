@@ -16,11 +16,11 @@ let sdkVersion: String = {
 }()
 
 let package = Package(
-    name: "Search",
+    name: "Kattr",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "Search",
+            name: "Kattr",
             path: "Sources/Search",
             // Same reasoning as the canvas app next door: the whole interface is
             // main-thread by nature, and Swift 6's strict isolation buys nothing

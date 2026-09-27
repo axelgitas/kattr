@@ -36,8 +36,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 CONFIG="${1:-release}"
 STEP="${2:-app}"
-APP="build/Search.app"
-NAME="Search"
+NAME="Kattr"
+APP="build/$NAME.app"
 VERSION="$(tr -d '[:space:]' < VERSION)"
 # A build number that only ever goes up, so the updater can tell newer from
 # older without parsing version strings.
@@ -48,10 +48,10 @@ MINIMUM="14.0"
 SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || echo "27.0")"
 
 SDK_VERSION="$SDK_VERSION" swift build -c "$CONFIG"
-BINARY=".build/$CONFIG/Search"
+BINARY=".build/$CONFIG/$NAME"
 
 
-rm -rf "$APP"
+rm -rf "$APP" build/Search.app build/Search.app.dSYM
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$NAME"
 
@@ -60,20 +60,26 @@ cp "$BINARY" "$APP/Contents/MacOS/$NAME"
 # what the app weighed (6.5 MB of binary, 2.7 without them), and nothing the
 # app reads while it runs. They are kept beside the build instead, as a dSYM
 # that turns the addresses in a crash report back into names (Console, or
-# atos -o build/Search.app.dSYM/Contents/Resources/DWARF/Search).
+# atos -o build/Kattr.app.dSYM/Contents/Resources/DWARF/Kattr).
 if [ "$CONFIG" = "release" ]; then
   rm -rf "$APP.dSYM"
   dsymutil "$BINARY" -o "$APP.dSYM" 2>/dev/null || echo "no dSYM this time" >&2
   strip -x "$APP/Contents/MacOS/$NAME"
 fi
 
-# The icon, drawn fresh each time — it is thirty lines of Swift, not an asset
-# to keep in step with anything.
-ICONSET="build/AppIcon.iconset"
-rm -rf "$ICONSET"
-swift Icon/icon.swift "$ICONSET" > /dev/null
-iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-rm -rf "$ICONSET"
+# The icon, compiled directly from Apple's Icon Composer asset using actool.
+# Preserves layered vector assets, glass/translucency, and appearance variants in Assets.car,
+# while also emitting Kattr.icns for Finder, DMG volume, and legacy system contexts.
+ICON="Icon/Kattr.icon"
+PARTIAL_PLIST=".build/icon-partial.plist"
+xcrun actool --output-format human-readable-text \
+  --compile "$APP/Contents/Resources" \
+  --platform macosx \
+  --minimum-deployment-target "$MINIMUM" \
+  --app-icon "$NAME" \
+  --output-partial-info-plist "$PARTIAL_PLIST" \
+  "$ICON" > /dev/null
+rm -f "$PARTIAL_PLIST"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -87,10 +93,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
-  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>CFBundleIconName</key><string>$NAME</string>
+  <key>CFBundleIconFile</key><string>$NAME</string>
   <key>LSMinimumSystemVersion</key><string>$MINIMUM</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
-  <key>NSHumanReadableCopyright</key><string>© Office Commun · Search</string>
+  <key>NSHumanReadableCopyright</key><string>© Office Commun · $NAME</string>
   <key>NSHighResolutionCapable</key><true/>
   <!-- Owning http and https is what sends a link clicked in Mail here.
        Appearing in Desktop & Dock → Default web browser also needs the
@@ -185,7 +192,7 @@ if [ -x "$DMGBUILD" ] \
   && tiffutil -cathidpicheck "$ART/background.png" "$ART/background@2x.png" -out "$ART/background.tiff" >/dev/null 2>&1
 then
   "$DMGBUILD" -s Installer/dmg.py \
-    -D app="$APP" -D background="$ART/background.tiff" -D icon="$APP/Contents/Resources/AppIcon.icns" \
+    -D app="$APP" -D background="$ART/background.tiff" -D icon="$APP/Contents/Resources/$NAME.icns" \
     "$NAME" "$DMG" >/dev/null
 else
   echo "note: no dmgbuild — a plain disk image, without its window laid out" >&2
