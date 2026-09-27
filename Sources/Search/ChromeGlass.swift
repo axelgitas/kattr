@@ -15,7 +15,7 @@ final class BrowserSurfaceSettings: ObservableObject {
     static let defaultArtworkFoundationOpacity: Double = 0.90
 
     static let blurSurfaceRange: ClosedRange<Double> = 0.0...1.0
-    static let blurSurfaceStep: Double = 0.01
+    static let blurSurfaceStep: Double = 0.05
 
     private init() {}
 

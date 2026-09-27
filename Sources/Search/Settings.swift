@@ -200,30 +200,59 @@ struct SettingsPanel: View {
                         }
                     }
                     Rule()
-                    Line("Artwork Transparency", "Opacity of the artwork image and diffused atmosphere") {
+                    Line("New Tab Artwork", "Opacity of the artwork image and diffused atmosphere on blank tabs") {
                         HStack(spacing: 8) {
                             Slider(
                                 value: Binding(
-                                    get: { transparencySettings.artworkTransparency },
-                                    set: { transparencySettings.artworkTransparency = $0 }
+                                    get: { transparencySettings.newTabArtworkOpacity },
+                                    set: { transparencySettings.newTabArtworkOpacity = $0 }
                                 ),
                                 in: AppearanceTransparencySettings.range,
                                 step: AppearanceTransparencySettings.step
                             )
                             .frame(width: 90)
 
-                            Text("\(Int(round(transparencySettings.artworkTransparency * 100)))%")
+                            Text("\(Int(round(transparencySettings.newTabArtworkOpacity * 100)))%")
                                 .font(.system(size: 11.5, weight: .medium).monospacedDigit())
                                 .foregroundStyle(Palette.ink)
                                 .frame(width: 34, alignment: .trailing)
 
                             ZStack(alignment: .trailing) {
                                 Pill("Reset") {
-                                    transparencySettings.resetArtwork()
+                                    transparencySettings.resetNewTabArtwork()
                                 }
                                 .fixedSize()
-                                .opacity(transparencySettings.isArtworkCustomized ? 1 : 0)
-                                .allowsHitTesting(transparencySettings.isArtworkCustomized)
+                                .opacity(transparencySettings.isNewTabArtworkCustomized ? 1 : 0)
+                                .allowsHitTesting(transparencySettings.isNewTabArtworkCustomized)
+                            }
+                            .frame(width: 52, alignment: .trailing)
+                        }
+                    }
+                    Rule()
+                    Line("Chrome Artwork", "Opacity of the continuous artwork image and atmosphere across browser chrome") {
+                        HStack(spacing: 8) {
+                            Slider(
+                                value: Binding(
+                                    get: { transparencySettings.chromeArtworkOpacity },
+                                    set: { transparencySettings.chromeArtworkOpacity = $0 }
+                                ),
+                                in: AppearanceTransparencySettings.range,
+                                step: AppearanceTransparencySettings.step
+                            )
+                            .frame(width: 90)
+
+                            Text("\(Int(round(transparencySettings.chromeArtworkOpacity * 100)))%")
+                                .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                                .foregroundStyle(Palette.ink)
+                                .frame(width: 34, alignment: .trailing)
+
+                            ZStack(alignment: .trailing) {
+                                Pill("Reset") {
+                                    transparencySettings.resetChromeArtwork()
+                                }
+                                .fixedSize()
+                                .opacity(transparencySettings.isChromeArtworkCustomized ? 1 : 0)
+                                .allowsHitTesting(transparencySettings.isChromeArtworkCustomized)
                             }
                             .frame(width: 52, alignment: .trailing)
                         }

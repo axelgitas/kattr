@@ -1,61 +1,95 @@
 import SwiftUI
 
-/// Centralized management and persistence for global artwork appearance transparency settings,
-/// controlling image-derived artwork and atmospheric blur layers across both Chrome and New Tab.
+/// Centralized management and persistence for independent artwork appearance opacity settings,
+/// controlling image-derived artwork and atmospheric blur layers across New Tab and Chrome independently.
 @MainActor
 final class AppearanceTransparencySettings: ObservableObject {
     static let shared = AppearanceTransparencySettings()
 
     static let didChange = Notification.Name("SearchAppearanceTransparencyDidChange")
 
-    static let artworkTransparencyKey = "appearance.artworkTransparency"
-    static let defaultArtworkTransparency: Double = 0.0
+    static let newTabArtworkOpacityKey = "appearance.newTabArtworkOpacity"
+    static let chromeArtworkOpacityKey = "appearance.chromeArtworkOpacity"
+
+    static let defaultArtworkOpacity: Double = 1.0
 
     static let range: ClosedRange<Double> = 0.0...1.0
     static let step: Double = 0.05
 
     private init() {}
 
-    /// Artwork & atmosphere transparency (0.0 = full normal artwork appearance, 1.0 = completely transparent artwork).
-    var artworkTransparency: Double {
+    /// New Tab artwork and atmosphere opacity (0.0 = completely invisible, 1.0 = fully visible).
+    var newTabArtworkOpacity: Double {
         get {
-            if let val = Store.settings.object(forKey: Self.artworkTransparencyKey) as? Double {
+            if let val = Store.settings.object(forKey: Self.newTabArtworkOpacityKey) as? Double {
                 return min(max(val, Self.range.lowerBound), Self.range.upperBound)
             }
-            return Self.defaultArtworkTransparency
+            return Self.defaultArtworkOpacity
         }
         set {
             let clamped = min(max(newValue, Self.range.lowerBound), Self.range.upperBound)
-            Store.settings.set(clamped, forKey: Self.artworkTransparencyKey)
+            Store.settings.set(clamped, forKey: Self.newTabArtworkOpacityKey)
             objectWillChange.send()
             NotificationCenter.default.post(name: Self.didChange, object: nil)
         }
     }
 
-    /// Resolved opacity of image-derived artwork and atmospheric blur layers (1.0 = full strength, 0.0 = clear).
-    var artworkOpacity: Double {
-        max(0.0, min(1.0, 1.0 - artworkTransparency))
+    /// Chrome continuous artwork and atmosphere opacity (0.0 = completely invisible, 1.0 = fully visible).
+    var chromeArtworkOpacity: Double {
+        get {
+            if let val = Store.settings.object(forKey: Self.chromeArtworkOpacityKey) as? Double {
+                return min(max(val, Self.range.lowerBound), Self.range.upperBound)
+            }
+            return Self.defaultArtworkOpacity
+        }
+        set {
+            let clamped = min(max(newValue, Self.range.lowerBound), Self.range.upperBound)
+            Store.settings.set(clamped, forKey: Self.chromeArtworkOpacityKey)
+            objectWillChange.send()
+            NotificationCenter.default.post(name: Self.didChange, object: nil)
+        }
     }
 
-    /// Whether artwork transparency differs from default.
-    var isArtworkCustomized: Bool {
-        Store.settings.object(forKey: Self.artworkTransparencyKey) != nil && artworkTransparency > 0.001
+    /// Whether New Tab artwork opacity differs from default (1.0).
+    var isNewTabArtworkCustomized: Bool {
+        if Store.settings.object(forKey: Self.newTabArtworkOpacityKey) != nil {
+            return abs(newTabArtworkOpacity - Self.defaultArtworkOpacity) > 0.001
+        }
+        return false
     }
 
-    /// Whether any transparency setting is customized from its default.
+    /// Whether Chrome artwork opacity differs from default (1.0).
+    var isChromeArtworkCustomized: Bool {
+        if Store.settings.object(forKey: Self.chromeArtworkOpacityKey) != nil {
+            return abs(chromeArtworkOpacity - Self.defaultArtworkOpacity) > 0.001
+        }
+        return false
+    }
+
+    /// Whether any artwork opacity setting is customized from its default.
     var isCustomized: Bool {
-        isArtworkCustomized
+        isNewTabArtworkCustomized || isChromeArtworkCustomized
     }
 
-    /// Resets artwork transparency to default.
-    func resetArtwork() {
-        Store.settings.removeObject(forKey: Self.artworkTransparencyKey)
+    /// Resets New Tab artwork opacity to default (1.0).
+    func resetNewTabArtwork() {
+        Store.settings.removeObject(forKey: Self.newTabArtworkOpacityKey)
         objectWillChange.send()
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 
-    /// Resets all transparency settings to default.
+    /// Resets Chrome artwork opacity to default (1.0).
+    func resetChromeArtwork() {
+        Store.settings.removeObject(forKey: Self.chromeArtworkOpacityKey)
+        objectWillChange.send()
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
+    }
+
+    /// Resets all artwork opacity settings to default.
     func reset() {
-        resetArtwork()
+        resetNewTabArtwork()
+        resetChromeArtwork()
     }
 }
+
+typealias AppearanceArtworkSettings = AppearanceTransparencySettings

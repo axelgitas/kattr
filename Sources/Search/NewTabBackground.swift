@@ -87,7 +87,7 @@ struct NewTabBackground: View {
                         viewportHeight: size.height,
                         globalMinY: globalMinY,
                         atmosphere: atmosphere,
-                        artworkOpacity: transparency.artworkOpacity
+                        artworkOpacity: transparency.newTabArtworkOpacity
                     )
                     .opacity(ready ? 1 : 0)
                     .zIndex(liquidGlass.position == .aboveArtwork ? 0 : 1)

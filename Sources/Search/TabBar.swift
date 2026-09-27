@@ -112,13 +112,18 @@ struct TabBar: View {
                         Image(systemName: "plus")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(chrome.muted)
+                            .chromeContrastHalo(chrome)
                             .frame(width: 15, height: 15)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 6)
                             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                             .background(
                                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .fill(plussed ? chrome.hover : .clear)
+                                    .fill(
+                                        chrome.isArtworkActive
+                                            ? (plussed ? Color.black.opacity(0.18) : .clear)
+                                            : (plussed ? chrome.hover : .clear)
+                                    )
                             )
                     }
                     .buttonStyle(.plain)
@@ -471,18 +476,21 @@ private struct TabPill: View {
                     Image(systemName: "flask")
                         .font(.system(size: 9))
                         .foregroundStyle(colour.opacity(0.7))
+                        .chromeContrastHalo(chrome)
                 }
                 if tab.shy {
                     // Quiet, and only on the tabs that keep nothing.
                     Image(systemName: "eye.slash")
                         .font(.system(size: 9))
                         .foregroundStyle(colour.opacity(0.7))
+                        .chromeContrastHalo(chrome)
                 }
                 Text(tab.label)
                     .font(.system(size: 12.5))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(colour)
+                    .chromeContrastHalo(chrome)
             }
 
             Spacer(minLength: 2)
@@ -505,6 +513,7 @@ private struct TabPill: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(chrome.muted)
+                            .chromeContrastHalo(chrome)
                             .frame(width: 15, height: 15)
                             .background(chrome.ink.opacity(0.07), in: Circle())
                             .transition(.opacity)
@@ -544,7 +553,7 @@ private struct TabPill: View {
             // the one thing in the window that says how far in you are, and
             // it says it without adding anything to the window.
             ZStack(alignment: .leading) {
-                Rectangle().fill(chrome.wash)
+                Rectangle().fill(chrome.isArtworkActive ? Color.black.opacity(0.30) : chrome.wash)
                 // Not on a pinned square, nor a tab down to its mark. Thirty
                 // points of grey filling from the left behind a single letter
                 // says nothing about anything — it needs the width of a title
@@ -560,13 +569,13 @@ private struct TabPill: View {
             .matchedGeometryEffect(id: "live", in: pill)
         } else if hovering {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(chrome.hover)
+                .fill(chrome.isArtworkActive ? Color.black.opacity(0.18) : chrome.hover)
         } else if pinned {
             // A letter with nothing behind it reads as debris. A pinned tab
             // keeps a faint ground of its own so the block of them reads as
             // one thing.
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(chrome.wash.opacity(0.55))
+                .fill(chrome.isArtworkActive ? Color.black.opacity(0.09) : chrome.wash.opacity(0.55))
         }
     }
 
@@ -872,6 +881,7 @@ struct Ring: View {
                 chrome.muted.opacity(0.7),
                 style: StrokeStyle(lineWidth: 1.4, lineCap: .round)
             )
+            .chromeContrastHalo(chrome)
             .frame(width: size, height: size)
             .rotationEffect(.degrees(angle))
             .onAppear {

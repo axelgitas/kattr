@@ -65,7 +65,7 @@ struct Omnibox: View {
     }
 
     private var field: some View {
-        AddressField(browser: browser)
+        AddressField(browser: browser, isDark: isDark)
             .frame(height: 22)
             .padding(.horizontal, 22)
             .padding(.vertical, 14)
@@ -238,7 +238,8 @@ private struct Breath: NSViewRepresentable {
         /// The ink is the look's: light on a dark window, dark on a light one.
         override func viewDidChangeEffectiveAppearance() {
             super.viewDidChangeEffectiveAppearance()
-            effectiveAppearance.performAsCurrentDrawingAppearance { glow.shadowColor = Palette.NS.ink.cgColor }
+            let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            glow.shadowColor = OmniboxPalette.primaryText(isDark: isDark).cgColor
         }
 
         override func layout() {
@@ -250,7 +251,8 @@ private struct Breath: NSViewRepresentable {
             glow.bounds = bounds
             glow.position = CGPoint(x: bounds.midX, y: bounds.midY)
             glow.shadowPath = CGPath(roundedRect: bounds, cornerWidth: 26, cornerHeight: 26, transform: nil)
-            effectiveAppearance.performAsCurrentDrawingAppearance { glow.shadowColor = Palette.NS.ink.cgColor }
+            let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            glow.shadowColor = OmniboxPalette.primaryText(isDark: isDark).cgColor
             CATransaction.commit()
             // From 0.97 to 1.03, from 0.65 to full, 2.6 s each way, for as
             // long as the field is there.
@@ -271,6 +273,32 @@ private struct Breath: NSViewRepresentable {
     }
 }
 
+/// Dedicated semantic palette for Omnibox text and controls floating over native Liquid Glass,
+/// resolving strictly from macOS window appearance (aqua/darkAqua) independent of custom background overrides.
+enum OmniboxPalette {
+    static func primaryText(isDark: Bool) -> NSColor {
+        isDark ? NSColor(white: 0.93, alpha: 1.0) : NSColor.black
+    }
+
+    static func placeholderText(isDark: Bool) -> NSColor {
+        isDark ? NSColor(white: 0.58, alpha: 0.70) : NSColor.black.withAlphaComponent(0.52)
+    }
+
+    static func selectionBackground(isDark: Bool) -> NSColor {
+        isDark ? NSColor(white: 0.93, alpha: 0.12) : NSColor.black.withAlphaComponent(0.12)
+    }
+
+    static func placeholderAttributedString(isDark: Bool) -> NSAttributedString {
+        NSAttributedString(
+            string: "Enter a web address",
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 15.5),
+                .foregroundColor: placeholderText(isDark: isDark),
+            ]
+        )
+    }
+}
+
 /// The field itself, in AppKit.
 ///
 /// SwiftUI's TextField can hold a string and nothing else, and the whole point
@@ -279,8 +307,9 @@ private struct Breath: NSViewRepresentable {
 /// needs a real text field and its delegate.
 struct AddressField: NSViewRepresentable {
     @ObservedObject var browser: Browser
+    let isDark: Bool
 
-    func makeCoordinator() -> Coordinator { Coordinator(browser: browser) }
+    func makeCoordinator() -> Coordinator { Coordinator(browser: browser, isDark: isDark) }
 
     func makeNSView(context: Context) -> NSTextField {
         let field = NSTextField()
@@ -289,25 +318,43 @@ struct AddressField: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: 15.5)
-        field.textColor = Palette.NS.ink
         field.lineBreakMode = .byTruncatingTail
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
-        // SwiftUI picks its own colour for a placeholder, and on a pale ground
-        // that colour was near-white.
-        field.placeholderAttributedString = NSAttributedString(
-            string: "Enter a web address",
-            attributes: [
-                .font: NSFont.systemFont(ofSize: 15.5),
-                .foregroundColor: NSColor(Palette.ink.opacity(0.3)),
-            ]
-        )
+
+        field.textColor = OmniboxPalette.primaryText(isDark: isDark)
+        field.placeholderAttributedString = OmniboxPalette.placeholderAttributedString(isDark: isDark)
         return field
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
         let coordinator = context.coordinator
         coordinator.browser = browser
+        coordinator.isDark = isDark
+
+        let primary = OmniboxPalette.primaryText(isDark: isDark)
+        let placeholder = OmniboxPalette.placeholderAttributedString(isDark: isDark)
+        let selectionBg = OmniboxPalette.selectionBackground(isDark: isDark)
+
+        field.textColor = primary
+        field.placeholderAttributedString = placeholder
+
+        if let editor = field.currentEditor() as? NSTextView {
+            editor.textColor = primary
+            editor.insertionPointColor = primary
+            var typingAttrs = editor.typingAttributes
+            typingAttrs[.foregroundColor] = primary
+            editor.typingAttributes = typingAttrs
+
+            if let storage = editor.textStorage, storage.length > 0 {
+                storage.addAttribute(.foregroundColor, value: primary, range: NSRange(location: 0, length: storage.length))
+            }
+
+            editor.selectedTextAttributes = [
+                .backgroundColor: selectionBg,
+                .foregroundColor: primary,
+            ]
+        }
 
         // Only when something other than typing changed it — ⌘L arriving with
         // an address, a walk through the list, a submit clearing it.
@@ -329,12 +376,19 @@ struct AddressField: NSViewRepresentable {
             DispatchQueue.main.async {
                 field.window?.makeFirstResponder(field)
                 guard let editor = field.currentEditor() as? NSTextView else { return }
-                // The system paints selected text as a block of accent colour,
-                // which over this pale field is the loudest thing in the
-                // window. A tenth of the ink says "selected" quietly enough.
+                editor.textColor = primary
+                editor.insertionPointColor = primary
+                var typingAttrs = editor.typingAttributes
+                typingAttrs[.foregroundColor] = primary
+                editor.typingAttributes = typingAttrs
+
+                if let storage = editor.textStorage, storage.length > 0 {
+                    storage.addAttribute(.foregroundColor, value: primary, range: NSRange(location: 0, length: storage.length))
+                }
+
                 editor.selectedTextAttributes = [
-                    .backgroundColor: NSColor(Palette.ink.opacity(0.12)),
-                    .foregroundColor: Palette.NS.ink,
+                    .backgroundColor: selectionBg,
+                    .foregroundColor: primary,
                 ]
                 editor.selectAll(nil)
             }
@@ -343,6 +397,7 @@ struct AddressField: NSViewRepresentable {
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var browser: Browser
+        var isDark: Bool
         var answered = -1
         /// The last value pushed in from the browser side, so an update can
         /// tell a change worth applying from one it made itself.
@@ -353,13 +408,53 @@ struct AddressField: NSViewRepresentable {
         /// and the address can never be shortened.
         private var deleting = false
 
-        init(browser: Browser) {
+        init(browser: Browser, isDark: Bool) {
             self.browser = browser
+            self.isDark = isDark
+        }
+
+        func controlTextDidBeginEditing(_ note: Notification) {
+            guard let field = note.object as? NSTextField else { return }
+            let primary = OmniboxPalette.primaryText(isDark: isDark)
+            let selectionBg = OmniboxPalette.selectionBackground(isDark: isDark)
+
+            field.textColor = primary
+            if let editor = field.currentEditor() as? NSTextView {
+                editor.textColor = primary
+                editor.insertionPointColor = primary
+                var typingAttrs = editor.typingAttributes
+                typingAttrs[.foregroundColor] = primary
+                editor.typingAttributes = typingAttrs
+
+                if let storage = editor.textStorage, storage.length > 0 {
+                    storage.addAttribute(.foregroundColor, value: primary, range: NSRange(location: 0, length: storage.length))
+                }
+
+                editor.selectedTextAttributes = [
+                    .backgroundColor: selectionBg,
+                    .foregroundColor: primary,
+                ]
+            }
         }
 
         func controlTextDidChange(_ note: Notification) {
             guard let field = note.object as? NSTextField else { return }
             let text = field.stringValue
+
+            let primary = OmniboxPalette.primaryText(isDark: isDark)
+            field.textColor = primary
+
+            if let editor = field.currentEditor() as? NSTextView {
+                editor.textColor = primary
+                editor.insertionPointColor = primary
+                var typingAttrs = editor.typingAttributes
+                typingAttrs[.foregroundColor] = primary
+                editor.typingAttributes = typingAttrs
+
+                if let storage = editor.textStorage, storage.length > 0 {
+                    storage.addAttribute(.foregroundColor, value: primary, range: NSRange(location: 0, length: storage.length))
+                }
+            }
 
             browser.typed = text
             guard !deleting, let ending = browser.ending else {
@@ -379,9 +474,22 @@ struct AddressField: NSViewRepresentable {
         /// replaces it and Return takes it.
         func select(from start: Int, in field: NSTextField) {
             guard let editor = field.currentEditor() as? NSTextView else { return }
+            let primary = OmniboxPalette.primaryText(isDark: isDark)
+            let selectionBg = OmniboxPalette.selectionBackground(isDark: isDark)
+
+            editor.textColor = primary
+            editor.insertionPointColor = primary
+            var typingAttrs = editor.typingAttributes
+            typingAttrs[.foregroundColor] = primary
+            editor.typingAttributes = typingAttrs
+
+            if let storage = editor.textStorage, storage.length > 0 {
+                storage.addAttribute(.foregroundColor, value: primary, range: NSRange(location: 0, length: storage.length))
+            }
+
             editor.selectedTextAttributes = [
-                .backgroundColor: NSColor(Palette.ink.opacity(0.12)),
-                .foregroundColor: Palette.NS.ink,
+                .backgroundColor: selectionBg,
+                .foregroundColor: primary,
             ]
             let length = field.stringValue.count
             guard start <= length else { return }

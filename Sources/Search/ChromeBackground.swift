@@ -90,6 +90,7 @@ struct ArtworkColors: Equatable {
 /// Semantic foreground colors for browser chrome, adapting dynamically to the effective backdrop.
 struct ChromeForeground: Equatable {
     let isDarkForeground: Bool
+    let isArtworkActive: Bool
 
     // Primary text & symbols (active tab label, main icons)
     let ink: Color
@@ -112,27 +113,67 @@ struct ChromeForeground: Equatable {
     // Reading progress fill inside tab pill
     let progress: Color
 
+    // Subtle opposite-color contrast halo for text/symbols when artwork is active
+    let haloColor: Color
+    let haloRadius: CGFloat
+    let haloY: CGFloat
+
     static let dark = ChromeForeground(
         isDarkForeground: true,
+        isArtworkActive: false,
         ink: Color.black.opacity(0.88),
         muted: Color.black.opacity(0.60),
         faint: Color.black.opacity(0.28),
         hover: Color.black.opacity(0.08),
         wash: Color.black.opacity(0.12),
         hairline: Color.black.opacity(0.12),
-        progress: Color.black.opacity(0.08)
+        progress: Color.black.opacity(0.08),
+        haloColor: .clear,
+        haloRadius: 0,
+        haloY: 0
     )
 
     static let light = ChromeForeground(
         isDarkForeground: false,
+        isArtworkActive: false,
         ink: Color.white.opacity(0.92),
         muted: Color.white.opacity(0.65),
         faint: Color.white.opacity(0.30),
         hover: Color.white.opacity(0.12),
         wash: Color.white.opacity(0.16),
         hairline: Color.white.opacity(0.18),
-        progress: Color.white.opacity(0.10)
+        progress: Color.white.opacity(0.10),
+        haloColor: .clear,
+        haloRadius: 0,
+        haloY: 0
     )
+
+    static func make(isDark: Bool, isArtworkActive: Bool) -> ChromeForeground {
+        let base: ChromeForeground = isDark ? .dark : .light
+        guard isArtworkActive else { return base }
+        return ChromeForeground(
+            isDarkForeground: base.isDarkForeground,
+            isArtworkActive: true,
+            ink: base.ink,
+            muted: base.muted,
+            faint: base.faint,
+            hover: base.hover,
+            wash: base.wash,
+            hairline: base.hairline,
+            progress: base.progress,
+            haloColor: isDark ? Color.white.opacity(0.35) : Color.black.opacity(0.40),
+            haloRadius: 1.2,
+            haloY: 0.5
+        )
+    }
+}
+
+extension View {
+    /// Applies a subtle opposite-color contrast halo when Chrome artwork is active.
+    /// When artwork is absent or inactive, haloColor is .clear and radius is 0, having zero effect.
+    func chromeContrastHalo(_ chrome: ChromeForeground) -> some View {
+        self.shadow(color: chrome.haloColor, radius: chrome.haloRadius, x: 0, y: chrome.haloY)
+    }
 }
 
 struct ChromeForegroundKey: EnvironmentKey {
@@ -180,7 +221,17 @@ final class ChromeLegibility: ObservableObject {
 
     func foreground(for browser: Browser, isSidebar: Bool, colorScheme: ColorScheme? = nil) -> ChromeForeground {
         let isDark = resolveIsDarkForeground(for: browser, isSidebar: isSidebar, colorScheme: colorScheme)
-        return isDark ? .dark : .light
+        let isVisiblyActive = Self.isChromeArtworkVisiblyActive(for: browser)
+        return ChromeForeground.make(isDark: isDark, isArtworkActive: isVisiblyActive)
+    }
+
+    /// Centralized check whether Chrome artwork is visibly contributing to the window.
+    static func isChromeArtworkVisiblyActive(for browser: Browser) -> Bool {
+        let tab = browser.active
+        let isBlank = tab?.isBlank ?? true
+        let override = ChromeArtwork.overrideNewTabArtwork && ChromeArtwork.current() != nil
+        let hasArtwork = override || (isBlank && (NewTabArtwork.current() ?? ChromeArtwork.current()) != nil)
+        return hasArtwork && AppearanceTransparencySettings.shared.chromeArtworkOpacity > 0.001
     }
 
     func resolveIsDarkForeground(for browser: Browser, isSidebar: Bool, colorScheme: ColorScheme? = nil) -> Bool {
@@ -229,7 +280,9 @@ final class ChromeLegibility: ObservableObject {
 
         let useSeparate = overrideArtwork && chromeImage != nil
         let isShowingArtwork = useSeparate ? (artworkImage != nil) : (isBlank && artworkImage != nil)
-        let alphaArt: CGFloat = isShowingArtwork ? 0.85 : 0.0
+        let artOpacity = CGFloat(AppearanceTransparencySettings.shared.chromeArtworkOpacity)
+        let isVisiblyActive = isShowingArtwork && artOpacity > 0.001
+        let alphaArt: CGFloat = isVisiblyActive ? artOpacity : 0.0
 
         let sampledArtRGB: (r: CGFloat, g: CGFloat, b: CGFloat)
         if let colors = artworkColors {
@@ -238,14 +291,11 @@ final class ChromeLegibility: ObservableObject {
             sampledArtRGB = (0.5, 0.5, 0.5)
         }
 
-
         // Ground color
         let groundColor = isSystemDark ? AppearanceBackground.currentDark : AppearanceBackground.currentLight
         let groundNS = groundColor.usingColorSpace(.sRGB) ?? (isSystemDark ? NSColor(white: 0.11, alpha: 1) : NSColor.white)
         let groundRGB = (r: groundNS.redComponent, g: groundNS.greenComponent, b: groundNS.blueComponent)
 
-        // Canonical wash matches NewTabFade.washColor(isDark:): black in dark mode, ground in light mode
-        let washRGB: (r: CGFloat, g: CGFloat, b: CGFloat) = isSystemDark ? (0, 0, 0) : groundRGB
         let tintRGB: (r: CGFloat, g: CGFloat, b: CGFloat) = groundRGB
 
         let alphaTint: CGFloat = CGFloat(AppearanceGlassSettings.shared.tintOpacity)
@@ -255,20 +305,13 @@ final class ChromeLegibility: ObservableObject {
             b: (1.0 - alphaTint) * glassBase.b + alphaTint * tintRGB.b
         )
 
-        // 2. When showing artwork, composite high-density foundation then artwork over cTinted
+        // Composite artwork directly over cTinted (physical foundation wash was removed)
         let cFinal: (r: CGFloat, g: CGFloat, b: CGFloat)
-        if isShowingArtwork {
-            let alphaFoundation: CGFloat = CGFloat(ChromeGlassSettings.shared.artworkFoundationOpacity)
-            let cFoundation = (
-                r: (1.0 - alphaFoundation) * cTinted.r + alphaFoundation * washRGB.r,
-                g: (1.0 - alphaFoundation) * cTinted.g + alphaFoundation * washRGB.g,
-                b: (1.0 - alphaFoundation) * cTinted.b + alphaFoundation * washRGB.b
-            )
-
+        if isVisiblyActive {
             cFinal = (
-                r: (1.0 - alphaArt) * cFoundation.r + alphaArt * sampledArtRGB.r,
-                g: (1.0 - alphaArt) * cFoundation.g + alphaArt * sampledArtRGB.g,
-                b: (1.0 - alphaArt) * cFoundation.b + alphaArt * sampledArtRGB.b
+                r: (1.0 - alphaArt) * cTinted.r + alphaArt * sampledArtRGB.r,
+                g: (1.0 - alphaArt) * cTinted.g + alphaArt * sampledArtRGB.g,
+                b: (1.0 - alphaArt) * cTinted.b + alphaArt * sampledArtRGB.b
             )
         } else {
             cFinal = cTinted
@@ -322,10 +365,9 @@ final class ChromeLegibility: ObservableObject {
             if isSidebar { lastLoggedSidebar = logKey } else { lastLoggedTopStrip = logKey }
             print("""
             [ChromeLegibility] \(isSidebar ? "Sidebar" : "Top Strip") updated:
-              - Active tab isBlank: \(isBlank), showing artwork: \(isShowingArtwork)
+              - Active tab isBlank: \(isBlank), showing artwork: \(isShowingArtwork), visibly active: \(isVisiblyActive)
               - Artwork sampled RGB: (\(String(format: "%.2f, %.2f, %.2f", sampledArtRGB.r, sampledArtRGB.g, sampledArtRGB.b))), opacity: \(String(format: "%.2f", alphaArt))
               - Glass base RGB: (\(String(format: "%.2f, %.2f, %.2f", glassBase.r, glassBase.g, glassBase.b)))
-              - Foundation wash RGB: (\(String(format: "%.2f, %.2f, %.2f", washRGB.r, washRGB.g, washRGB.b))), opacity: \(String(format: "%.2f", ChromeGlassSettings.shared.artworkFoundationOpacity))
               - Tint RGB: (\(String(format: "%.2f, %.2f, %.2f", tintRGB.r, tintRGB.g, tintRGB.b))), tint opacity: \(String(format: "%.2f", alphaTint))
               - Final estimated effective RGB: (\(String(format: "%.2f, %.2f, %.2f", cFinal.r, cFinal.g, cFinal.b)))
               - Final effective luminance: \(String(format: "%.3f", effectiveLuminance))
@@ -601,7 +643,7 @@ private struct ChromeArtworkHost: View {
                     windowWidth: windowSize.width,
                     windowHeight: windowSize.height,
                     atmosphere: atmosphere,
-                    artworkOpacity: transparency.artworkOpacity
+                    artworkOpacity: transparency.chromeArtworkOpacity
                 )
                 .opacity(isShowingArtwork ? 1.0 : 0.0)
             }

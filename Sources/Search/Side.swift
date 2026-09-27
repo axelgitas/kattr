@@ -517,10 +517,12 @@ private struct PinSquare: View {
                 PinField(browser: browser, tab: tab)
             } else if prefs.glyph == .icons, let icon = tab.icon {
                 Mark(icon: icon, letter: tab.pin ?? "", size: scale * 16 / 34, dim: tab.asleep)
+                    .chromeContrastHalo(chrome)
             } else {
                 Text(tab.pin ?? "")
                     .font(.system(size: scale * 12 / 34, weight: .medium))
                     .foregroundStyle((live ? chrome.ink : chrome.muted).opacity(tab.asleep ? 0.45 : 1))
+                    .chromeContrastHalo(chrome)
             }
         }
         .frame(width: scale * 16 / 34, height: scale * 16 / 34)
@@ -528,11 +530,15 @@ private struct PinSquare: View {
         .background {
             if live {
                 RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
-                    .fill(chrome.wash)
+                    .fill(chrome.isArtworkActive ? Color.black.opacity(0.30) : chrome.wash)
                     .matchedGeometryEffect(id: "live", in: pill)
             } else {
                 RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
-                    .fill(hovering ? chrome.hover : chrome.wash.opacity(0.55))
+                    .fill(
+                        chrome.isArtworkActive
+                            ? Color.black.opacity(hovering ? 0.18 : 0.09)
+                            : (hovering ? chrome.hover : chrome.wash.opacity(0.55))
+                    )
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous))
@@ -586,17 +592,20 @@ private struct SideRow: View {
                     Image(systemName: "flask")
                         .font(.system(size: 9))
                         .foregroundStyle(colour.opacity(0.7))
+                        .chromeContrastHalo(chrome)
                 }
                 if tab.shy {
                     Image(systemName: "eye.slash")
                         .font(.system(size: 9))
                         .foregroundStyle(colour.opacity(0.7))
+                        .chromeContrastHalo(chrome)
                 }
                 Text(tab.label)
                     .font(.system(size: 12.5))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .foregroundStyle(colour)
+                    .chromeContrastHalo(chrome)
             }
 
             if status {
@@ -641,6 +650,7 @@ private struct SideRow: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(chrome.muted)
+                            .chromeContrastHalo(chrome)
                             .frame(width: 15, height: 15)
                             .background(chrome.ink.opacity(0.07), in: Circle())
                             .transition(.opacity)
@@ -681,7 +691,7 @@ private struct SideRow: View {
     private var ground: some View {
         if live {
             ZStack(alignment: .leading) {
-                Rectangle().fill(chrome.wash)
+                Rectangle().fill(chrome.isArtworkActive ? Color.black.opacity(0.30) : chrome.wash)
                 if prefs.showsReading {
                     GeometryReader { geo in
                         Rectangle()
@@ -695,7 +705,7 @@ private struct SideRow: View {
             .matchedGeometryEffect(id: "live", in: pill)
         } else if hovering {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(chrome.hover)
+                .fill(chrome.isArtworkActive ? Color.black.opacity(0.18) : chrome.hover)
         }
     }
 
@@ -726,18 +736,24 @@ struct Quiet: View {
                 Spacer(minLength: 0)
             }
             .foregroundStyle(hovering ? chrome.ink.opacity(0.7) : chrome.faint)
+            .chromeContrastHalo(chrome)
             .padding(.leading, 10)
             .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(hovering ? chrome.hover : .clear)
+                    .fill(
+                        chrome.isArtworkActive
+                            ? (hovering ? Color.black.opacity(0.18) : .clear)
+                            : (hovering ? chrome.hover : .clear)
+                    )
             )
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .animation(Motion.quick, value: hovering)
+        .help(title)
     }
 }
 
@@ -756,6 +772,7 @@ struct Speaker: View {
             Image(systemName: tab.muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 .font(.system(size: 8))
                 .foregroundStyle(chrome.muted)
+                .chromeContrastHalo(chrome)
                 .frame(width: 15, height: 15)
                 .background(chrome.ink.opacity(hovering ? 0.07 : 0), in: Circle())
                 .contentShape(Circle())
@@ -782,6 +799,7 @@ struct Door: View {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(on ? chrome.ink : (hovering ? chrome.ink.opacity(0.7) : chrome.muted))
+                .chromeContrastHalo(chrome)
                 .frame(width: 26, height: 26)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
