@@ -45,7 +45,7 @@ func draw() {
     line.stroke()
 
     // What to do, once, under the names the Finder writes.
-    let words = "Drag Search into Applications to install it"
+    let words = "Drag Kattr into Applications to install it"
     let attributes: [NSAttributedString.Key: Any] = [
         .font: NSFont.systemFont(ofSize: 13),
         .foregroundColor: muted,

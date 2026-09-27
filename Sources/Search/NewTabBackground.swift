@@ -2,55 +2,6 @@ import SwiftUI
 import AppKit
 
 
-/// An animatable shape masking the persistent New Tab backdrop to the active stage/page region.
-struct NewTabStageMaskShape: Shape {
-    var stageLeading: CGFloat
-    var stageTop: CGFloat
-    var stageOffsetX: CGFloat
-    var stageOffsetY: CGFloat
-
-    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
-        get {
-            AnimatablePair(
-                AnimatablePair(stageLeading, stageTop),
-                AnimatablePair(stageOffsetX, stageOffsetY)
-            )
-        }
-        set {
-            stageLeading = newValue.first.first
-            stageTop = newValue.first.second
-            stageOffsetX = newValue.second.first
-            stageOffsetY = newValue.second.second
-        }
-    }
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let x = stageLeading + stageOffsetX
-        let y = stageTop + stageOffsetY
-        let w = max(0, rect.width - stageLeading)
-        let h = max(0, rect.height - stageTop)
-        if w > 0 && h > 0 {
-            path.addRect(CGRect(x: x, y: y, width: w, height: h))
-        }
-        return path
-    }
-}
-
-/// The root-level persistent New Tab background view.
-/// BrowserSurface FrostedGlass is now provided continuously at the window root by BrowserSurfaceView.
-struct PersistentNewTabBackground: View {
-    let stageLeading: CGFloat
-    let stageTop: CGFloat
-    let stageOffsetX: CGFloat
-    let stageOffsetY: CGFloat
-
-    var body: some View {
-        Color.clear
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-    }
-}
 
 /// Zeron-inspired artwork treatment for Search's blank / new-tab page.
 ///

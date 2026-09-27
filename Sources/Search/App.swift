@@ -260,7 +260,6 @@ private final class CursorGroundView: NSView {
 struct ContentView: View {
     @ObservedObject var browser: Browser
     @ObservedObject private var paletteUpdates = AppearancePaletteUpdates.shared
-    @ObservedObject private var transparency = AppearanceTransparencySettings.shared
 
     @State private var keys: Any?
     @State private var window: NSWindow?
@@ -270,29 +269,6 @@ struct ContentView: View {
     private var targetWindow: NSWindow? {
         window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }) ?? NSApp.mainWindow
     }
-
-    #if DEBUG
-    private func logStageTiming(event: String) {
-        let uptime = ProcessInfo.processInfo.systemUptime
-        let win = targetWindow
-        let active = NSApp.isActive
-        let key = win?.isKeyWindow ?? false
-        let frame = win?.frame ?? .zero
-        let visible = win?.occlusionState.contains(.visible) ?? false
-        print(String(
-            format: "[StageTiming %.3f] %@ | active=%@ key=%@ | frame=(%.1f,%.1f,%.1f,%.1f) | visible=%@",
-            uptime,
-            event,
-            active ? "true" : "false",
-            key ? "true" : "false",
-            frame.origin.x,
-            frame.origin.y,
-            frame.size.width,
-            frame.size.height,
-            visible ? "true" : "false"
-        ))
-    }
-    #endif
 
     /// The room the page leaves for the column and the strip, set without
     /// animation (see `make(room:after:)`); nil only before the window is up.
@@ -579,18 +555,8 @@ struct ContentView: View {
             .onChange(of: browser.prefs.sidebar) { _, _ in
                 DispatchQueue.main.async { measureLights() }
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willMiniaturizeNotification)) { note in
-                if let win = targetWindow, (note.object as? NSWindow) === win {
-                    #if DEBUG
-                    logStageTiming(event: "willMiniaturize")
-                    #endif
-                }
-            }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { note in
                 if let win = targetWindow, (note.object as? NSWindow) === win {
-                    #if DEBUG
-                    logStageTiming(event: "didMiniaturize")
-                    #endif
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
@@ -600,9 +566,6 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didDeminiaturizeNotification)) { note in
                 if let win = targetWindow, (note.object as? NSWindow) === win {
-                    #if DEBUG
-                    logStageTiming(event: "didDeminiaturize")
-                    #endif
                     if LiquidGlassSettings.shared.style != .off {
                         var transaction = Transaction()
                         transaction.disablesAnimations = true
@@ -619,87 +582,21 @@ struct ContentView: View {
                     }
                 }
             }
-            // Stage Manager exit transition: let SwiftUI manage native glass lifecycle
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
-                #if DEBUG
-                logStageTiming(event: "willResignActive")
-                #endif
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
-                guard let win = targetWindow, (note.object as? NSWindow) === win else { return }
-                #if DEBUG
-                logStageTiming(event: "didResignKey")
-                #endif
-            }
             // Stepping away to another app: macOS draws its own resting
             // buttons, and on a light window they come out nearly white. Ours
             // go on in their place until the app comes back.
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-                #if DEBUG
-                logStageTiming(event: "didResignActive")
-                #endif
                 measureLights()
                 resting?.isHidden = false
                 // Only the window you were in, or every window's video would come.
                 browser.appLeft()
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeOcclusionStateNotification)) { note in
-                guard let win = targetWindow, (note.object as? NSWindow) === win else { return }
-                #if DEBUG
-                logStageTiming(event: "didChangeOcclusionState")
-                #endif
-            }
-            // Returning to active stage: let SwiftUI manage native glass lifecycle
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.willBecomeActiveNotification)) { _ in
-                #if DEBUG
-                logStageTiming(event: "willBecomeActive")
-                #endif
-            }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
                 if let win = targetWindow, (note.object as? NSWindow) === win {
-                    #if DEBUG
-                    logStageTiming(event: "didBecomeKey")
-                    #endif
                     Browser.front = browser
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { note in
-                if let win = targetWindow, (note.object as? NSWindow) === win {
-                    #if DEBUG
-                    logStageTiming(event: "didMove")
-                    #endif
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { note in
-                if let win = targetWindow, (note.object as? NSWindow) === win {
-                    #if DEBUG
-                    logStageTiming(event: "didResize")
-                    #endif
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didUpdateNotification)) { note in
-                if let win = targetWindow, (note.object as? NSWindow) === win {
-                    // ordinary didUpdate, no landing logic
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification)) { note in
-                if let win = targetWindow, (note.object as? NSWindow) === win {
-                    #if DEBUG
-                    logStageTiming(event: "didChangeScreen")
-                    #endif
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeBackingPropertiesNotification)) { note in
-                if let win = targetWindow, (note.object as? NSWindow) === win {
-                    #if DEBUG
-                    logStageTiming(event: "didChangeBackingProperties")
-                    #endif
-                }
-            }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                #if DEBUG
-                logStageTiming(event: "didBecomeActive")
-                #endif
                 resting?.isHidden = true
                 browser.appBack()
             }

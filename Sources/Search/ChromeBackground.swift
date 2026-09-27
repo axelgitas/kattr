@@ -198,9 +198,6 @@ final class ChromeLegibility: ObservableObject {
     private var previousTopStripScheme: ColorScheme?
     private var previousSidebarScheme: ColorScheme?
 
-    private var lastLoggedTopStrip: String = ""
-    private var lastLoggedSidebar: String = ""
-
     private init() {
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(invalidate), name: NewTabArtwork.didChange, object: nil)
@@ -358,23 +355,6 @@ final class ChromeLegibility: ObservableObject {
             previousTopStripDecision = isDarkForeground
         }
 
-        // Debug logging on state changes
-        let logKey = "\(isSidebar)-\(isBlank)-\(isShowingArtwork)-\(String(format: "%.2f", effectiveLuminance))-\(isDarkForeground)"
-        let lastLog = isSidebar ? lastLoggedSidebar : lastLoggedTopStrip
-        if logKey != lastLog {
-            if isSidebar { lastLoggedSidebar = logKey } else { lastLoggedTopStrip = logKey }
-            print("""
-            [ChromeLegibility] \(isSidebar ? "Sidebar" : "Top Strip") updated:
-              - Active tab isBlank: \(isBlank), showing artwork: \(isShowingArtwork), visibly active: \(isVisiblyActive)
-              - Artwork sampled RGB: (\(String(format: "%.2f, %.2f, %.2f", sampledArtRGB.r, sampledArtRGB.g, sampledArtRGB.b))), opacity: \(String(format: "%.2f", alphaArt))
-              - Glass base RGB: (\(String(format: "%.2f, %.2f, %.2f", glassBase.r, glassBase.g, glassBase.b)))
-              - Tint RGB: (\(String(format: "%.2f, %.2f, %.2f", tintRGB.r, tintRGB.g, tintRGB.b))), tint opacity: \(String(format: "%.2f", alphaTint))
-              - Final estimated effective RGB: (\(String(format: "%.2f, %.2f, %.2f", cFinal.r, cFinal.g, cFinal.b)))
-              - Final effective luminance: \(String(format: "%.3f", effectiveLuminance))
-              - Selected foreground: \(isDarkForeground ? "DARK" : "LIGHT")
-            """)
-        }
-
         return isDarkForeground
     }
 }
@@ -484,32 +464,8 @@ enum ChromeArtwork {
     }
 }
 
-/// Static mask shape for BrowserSurface FrostedGlass: animatableData disabled so the mask snaps immediately.
-struct ChromeMaskShape: Shape {
-    var sideWidth: CGFloat
-    var topHeight: CGFloat
-
-    // Static snapping: animatableData disabled so the NSVisualEffectView reveal mask snaps immediately without backdrop resampling.
-    var animatableData: EmptyAnimatableData {
-        get { EmptyAnimatableData() }
-        set {}
-    }
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        if sideWidth > 0 {
-            path.addRect(CGRect(x: 0, y: 0, width: sideWidth, height: rect.height))
-        }
-        if topHeight > 0 {
-            path.addRect(CGRect(x: 0, y: 0, width: rect.width, height: topHeight))
-        }
-        return path
-    }
-}
-
 /// Animatable reveal mask for Chrome artwork only.
 /// Interpolates smoothly between the top tab strip and the sidebar using Motion.glide.
-/// Kept strictly separate from the static snapping ChromeMaskShape used by BrowserSurface FrostedGlass.
 struct ChromeArtworkMaskShape: Shape {
     var sideWidth: CGFloat
     var topHeight: CGFloat
@@ -534,8 +490,8 @@ struct ChromeArtworkMaskShape: Shape {
     }
 }
 
-/// The root-level persistent Chrome background view hosting exactly one FrostedGlass covering full window bounds,
-/// clipped to the static snapping ChromeMaskShape, and a continuous Chrome artwork hierarchy clipped to ChromeArtworkMaskShape.
+/// The root-level persistent Chrome background view hosting a continuous Chrome artwork hierarchy
+/// clipped to ChromeArtworkMaskShape and an optional native Liquid Glass overlay.
 struct PersistentChromeBackground: View {
     @ObservedObject var browser: Browser
     let sideWidth: CGFloat

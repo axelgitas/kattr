@@ -10,8 +10,7 @@ final class AppearanceGlassSettings: ObservableObject {
 
     nonisolated static let didChange = Notification.Name("SearchAppearanceGlassDidChange")
 
-    nonisolated static let newTintKey = "appearance.glassTintOpacity"
-    nonisolated static let legacyTintKey = "appearance.chrome.tintOpacity"
+    nonisolated static let tintKey = "appearance.glassTintOpacity"
 
     nonisolated static let defaultTint: Double = 0.35
     nonisolated static let tintRange: ClosedRange<Double> = 0.00...1.00
@@ -22,18 +21,14 @@ final class AppearanceGlassSettings: ObservableObject {
     /// Effective tint opacity layered over FrostedGlass in Chrome and atmospheric continuation in New Tab.
     var tintOpacity: Double {
         get {
-            if let val = Store.settings.object(forKey: Self.newTintKey) as? Double {
-                return min(max(val, Self.tintRange.lowerBound), Self.tintRange.upperBound)
-            }
-            // Fallback migration from legacy chrome tint key if present
-            if let val = Store.settings.object(forKey: Self.legacyTintKey) as? Double {
+            if let val = Store.settings.object(forKey: Self.tintKey) as? Double {
                 return min(max(val, Self.tintRange.lowerBound), Self.tintRange.upperBound)
             }
             return Self.defaultTint
         }
         set {
             let clamped = min(max(newValue, Self.tintRange.lowerBound), Self.tintRange.upperBound)
-            Store.settings.set(clamped, forKey: Self.newTintKey)
+            Store.settings.set(clamped, forKey: Self.tintKey)
             objectWillChange.send()
             NotificationCenter.default.post(name: Self.didChange, object: nil)
         }
@@ -41,19 +36,16 @@ final class AppearanceGlassSettings: ObservableObject {
 
     /// Whether the glass tint setting differs from its default value.
     var isCustomized: Bool {
-        if Store.settings.object(forKey: Self.newTintKey) != nil {
-            return abs(tintOpacity - Self.defaultTint) > 0.001
-        }
-        if Store.settings.object(forKey: Self.legacyTintKey) != nil {
+        if Store.settings.object(forKey: Self.tintKey) != nil {
             return abs(tintOpacity - Self.defaultTint) > 0.001
         }
         return false
     }
 
-    /// Resets glass tint to default and cleans up both new and legacy keys.
+    /// Resets glass tint to default.
     func reset() {
-        Store.settings.removeObject(forKey: Self.newTintKey)
-        Store.settings.removeObject(forKey: Self.legacyTintKey)
+        Store.settings.removeObject(forKey: Self.tintKey)
+        Store.settings.removeObject(forKey: "appearance.chrome.tintOpacity")
         objectWillChange.send()
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }

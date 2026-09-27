@@ -66,11 +66,6 @@ final class AppearanceTransparencySettings: ObservableObject {
         return false
     }
 
-    /// Whether any artwork opacity setting is customized from its default.
-    var isCustomized: Bool {
-        isNewTabArtworkCustomized || isChromeArtworkCustomized
-    }
-
     /// Resets New Tab artwork opacity to default (1.0).
     func resetNewTabArtwork() {
         Store.settings.removeObject(forKey: Self.newTabArtworkOpacityKey)
@@ -84,12 +79,4 @@ final class AppearanceTransparencySettings: ObservableObject {
         objectWillChange.send()
         NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
-
-    /// Resets all artwork opacity settings to default.
-    func reset() {
-        resetNewTabArtwork()
-        resetChromeArtwork()
-    }
 }
-
-typealias AppearanceArtworkSettings = AppearanceTransparencySettings

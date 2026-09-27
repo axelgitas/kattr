@@ -12,13 +12,13 @@ set -euo pipefail
 cd "$(dirname "$0")"
 [ $# -eq 1 ] || { echo "usage: ./publish.sh <folder>" >&2; exit 1; }
 FOLDER="$1"
-FILES=(Search.dmg Search.zip appcast.json)
+FILES=(Kattr.dmg Kattr.zip appcast.json)
 
 for FILE in "${FILES[@]}"; do
   [ -f "build/$FILE" ] || { echo "build/$FILE is missing — ./build.sh release dmg makes it" >&2; exit 1; }
 done
-xcrun stapler validate -q "build/Search.dmg" >/dev/null 2>&1 \
-  || echo "note: build/Search.dmg is not notarised — ./build.sh release ship does that" >&2
+xcrun stapler validate -q "build/Kattr.dmg" >/dev/null 2>&1 \
+  || echo "note: build/Kattr.dmg is not notarised — ./build.sh release ship does that" >&2
 
 mkdir -p "$FOLDER"
 for FILE in "${FILES[@]}"; do
