@@ -37,11 +37,8 @@ struct NewTabStageMaskShape: Shape {
     }
 }
 
-/// The root-level persistent New Tab background view hosting exactly one FrostedGlass covering full window bounds,
-/// clipped to the animated NewTabStageMaskShape.
-///
-/// Invariant: NSVisualEffectView is sized to full window bounds with a fixed origin.
-/// Only its reveal mask animates during layout transitions, preventing WindowServer backdrop re-allocation.
+/// The root-level persistent New Tab background view.
+/// BrowserSurface FrostedGlass is now provided continuously at the window root by BrowserSurfaceView.
 struct PersistentNewTabBackground: View {
     let stageLeading: CGFloat
     let stageTop: CGFloat
@@ -49,22 +46,9 @@ struct PersistentNewTabBackground: View {
     let stageOffsetY: CGFloat
 
     var body: some View {
-        GeometryReader { geo in
-            BrowserSurfaceView(
-                isSidebar: false
-            )
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipShape(
-                NewTabStageMaskShape(
-                    stageLeading: stageLeading,
-                    stageTop: stageTop,
-                    stageOffsetX: stageOffsetX,
-                    stageOffsetY: stageOffsetY
-                )
-            )
-        }
-        .ignoresSafeArea()
-        .allowsHitTesting(false)
+        Color.clear
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
     }
 }
 
@@ -102,8 +86,7 @@ struct NewTabBackground: View {
                         viewportHeight: size.height,
                         globalMinY: globalMinY,
                         atmosphere: atmosphere,
-                        artworkOpacity: transparency.artworkOpacity,
-                        surfaceOpacity: BrowserSurfaceSettings.shared.surfaceOpacity
+                        artworkOpacity: transparency.artworkOpacity
                     )
                     .opacity(ready ? 1 : 0)
                 }
@@ -194,7 +177,6 @@ private struct ArtworkStackView: View, Animatable {
     var globalMinY: CGFloat
     let atmosphere: ArtworkAtmosphere
     let artworkOpacity: Double
-    let surfaceOpacity: Double
 
     var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, CGFloat> {
         get {
@@ -227,9 +209,8 @@ private struct ArtworkStackView: View, Animatable {
                 // with deep, rich midnight hues without desaturating into Search's neutral gray.
                 // Light appearance anchors to Palette.ground (pure white) for a clean,
                 // readable, gently tinted paper canvas.
-                // Opacity is governed globally by BrowserSurfaceSettings.surfaceOpacity.
                 atmosphere.washColor
-                    .opacity(surfaceOpacity)
+                    .opacity(artworkOpacity)
                     .frame(width: viewportWidth, height: viewportHeight)
 
                 // The complete image-based artwork & atmosphere stack (layers 1, 2, 3):

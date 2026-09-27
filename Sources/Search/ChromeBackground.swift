@@ -504,17 +504,7 @@ struct PersistentChromeBackground: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                // 1. PERSISTENT CHROME BROWSER SURFACE
-                // Full-window NSVisualEffectView, fixed origin, fixed frame, fixed opacity.
-                // Revealed only in Chrome areas by static snapping ChromeMaskShape.
-                BrowserSurfaceView(
-                    isSidebar: browser.prefs.sidebar
-                )
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipShape(ChromeMaskShape(sideWidth: sideWidth, topHeight: topHeight))
-                .transaction { $0.animation = nil }
-
-                // 2. PERSISTENT CHROME ARTWORK LAYER
+                // 1. PERSISTENT CHROME ARTWORK LAYER
                 // Continuous, orientation-independent image selection.
                 // Smoothly morphs scale and center anchor with Motion.glide.
                 // Clipped strictly by animatable ChromeArtworkMaskShape (artwork-only).
@@ -531,7 +521,7 @@ struct PersistentChromeBackground: View {
                     .clipShape(ChromeArtworkMaskShape(sideWidth: sideWidth, topHeight: topHeight))
                 }
 
-                // 3. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
+                // 2. NATIVE LIQUID GLASS OVERLAY (macOS 26+)
                 // Sits above the chrome artwork stack to refract and sample the rendered artwork.
                 NativeLiquidGlassOverlay()
                     .frame(width: geo.size.width, height: geo.size.height)
@@ -610,7 +600,7 @@ private struct ChromeArtworkHost: View {
                     windowHeight: windowSize.height,
                     washColor: wash,
                     atmosphere: atmosphere,
-                    foundationOpacity: glass.artworkFoundationOpacity * transparency.backgroundOpacity,
+                    foundationOpacity: glass.artworkFoundationOpacity * transparency.artworkOpacity,
                     artworkOpacity: transparency.artworkOpacity
                 )
                 .opacity(isShowingArtwork ? 1.0 : 0.0)

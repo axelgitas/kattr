@@ -200,35 +200,6 @@ struct SettingsPanel: View {
                         }
                     }
                     Rule()
-                    Line("Surface Transparency", "Transparency of the browser background surface") {
-                        HStack(spacing: 8) {
-                            Slider(
-                                value: Binding(
-                                    get: { surfaceSettings.surfaceTransparency },
-                                    set: { surfaceSettings.surfaceTransparency = $0 }
-                                ),
-                                in: BrowserSurfaceSettings.transparencyRange,
-                                step: BrowserSurfaceSettings.transparencyStep
-                            )
-                            .frame(width: 90)
-
-                            Text("\(Int(round(surfaceSettings.surfaceTransparency * 100)))%")
-                                .font(.system(size: 11.5, weight: .medium).monospacedDigit())
-                                .foregroundStyle(Palette.ink)
-                                .frame(width: 34, alignment: .trailing)
-
-                            ZStack(alignment: .trailing) {
-                                Pill("Reset") {
-                                    surfaceSettings.resetTransparency()
-                                }
-                                .fixedSize()
-                                .opacity(surfaceSettings.isTransparencyCustomized ? 1 : 0)
-                                .allowsHitTesting(surfaceSettings.isTransparencyCustomized)
-                            }
-                            .frame(width: 52, alignment: .trailing)
-                        }
-                    }
-                    Rule()
                     Line("Artwork Transparency", "Opacity of the artwork image and diffused atmosphere") {
                         HStack(spacing: 8) {
                             Slider(
@@ -287,23 +258,30 @@ struct SettingsPanel: View {
                         }
                     }
                     Rule()
-                    Line("Blur Strength", "Diffusion profile for the underlying frosted glass") {
+                    Line("Blur Surface", "Diffusion strength of the background frosted glass") {
                         HStack(spacing: 8) {
-                            Segmented(
-                                options: BlurStrength.allCases.map { ($0, $0.title) },
-                                selection: Binding(
-                                    get: { surfaceSettings.blurStrength },
-                                    set: { surfaceSettings.blurStrength = $0 }
-                                )
+                            Slider(
+                                value: Binding(
+                                    get: { surfaceSettings.blurSurfaceOpacity },
+                                    set: { surfaceSettings.blurSurfaceOpacity = $0 }
+                                ),
+                                in: BrowserSurfaceSettings.blurSurfaceRange,
+                                step: BrowserSurfaceSettings.blurSurfaceStep
                             )
+                            .frame(width: 90)
+
+                            Text("\(Int(round(surfaceSettings.blurSurfaceOpacity * 100)))%")
+                                .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                                .foregroundStyle(Palette.ink)
+                                .frame(width: 34, alignment: .trailing)
 
                             ZStack(alignment: .trailing) {
                                 Pill("Reset") {
-                                    surfaceSettings.resetBlurStrength()
+                                    surfaceSettings.resetBlurSurfaceOpacity()
                                 }
                                 .fixedSize()
-                                .opacity(surfaceSettings.isBlurStrengthCustomized ? 1 : 0)
-                                .allowsHitTesting(surfaceSettings.isBlurStrengthCustomized)
+                                .opacity(surfaceSettings.isBlurSurfaceCustomized ? 1 : 0)
+                                .allowsHitTesting(surfaceSettings.isBlurSurfaceCustomized)
                             }
                             .frame(width: 52, alignment: .trailing)
                         }
