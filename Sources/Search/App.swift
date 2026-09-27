@@ -266,14 +266,6 @@ struct ContentView: View {
     @State private var window: NSWindow?
     @State private var resting: RestingLights?
     @State private var restorePresentationOpacity: Double = 1.0
-    @State private var normalMinimizeFallbackOpacity: Double = 0.0
-    @State private var stageTransitionFallbackOpacity: Double = 0.0
-    @State private var omniboxNativeGlassOpacity: Double = 1.0
-    @State private var stageRestoreTask: Task<Void, Never>?
-
-    private var effectiveFallbackOpacity: Double {
-        max(normalMinimizeFallbackOpacity, stageTransitionFallbackOpacity)
-    }
 
     private var targetWindow: NSWindow? {
         window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }) ?? NSApp.mainWindow
@@ -288,7 +280,7 @@ struct ContentView: View {
         let frame = win?.frame ?? .zero
         let visible = win?.occlusionState.contains(.visible) ?? false
         print(String(
-            format: "[StageTiming %.3f] %@ | active=%@ key=%@ | frame=(%.1f,%.1f,%.1f,%.1f) | visible=%@ | fallback=%.2f native=%.2f",
+            format: "[StageTiming %.3f] %@ | active=%@ key=%@ | frame=(%.1f,%.1f,%.1f,%.1f) | visible=%@",
             uptime,
             event,
             active ? "true" : "false",
@@ -297,90 +289,11 @@ struct ContentView: View {
             frame.origin.y,
             frame.size.width,
             frame.size.height,
-            visible ? "true" : "false",
-            stageTransitionFallbackOpacity,
-            omniboxNativeGlassOpacity
+            visible ? "true" : "false"
         ))
     }
     #endif
 
-    /// Restores the native Liquid Glass appearance on the Omnibox using the shared crossfade handoff.
-    private func restoreNativeOmniboxGlass(trigger: String = "unknown", animation: Animation = Motion.glassHandoff) {
-        if let window, window.isMiniaturized {
-            #if DEBUG
-            logStageTiming(event: "restoreNativeOmniboxGlass SKIPPED (trigger: \(trigger), reason: window.isMiniaturized)")
-            #endif
-            return
-        }
-        guard omniboxNativeGlassOpacity < 1.0 || effectiveFallbackOpacity > 0.0 else {
-            #if DEBUG
-            logStageTiming(event: "restoreNativeOmniboxGlass SKIPPED (trigger: \(trigger), reason: guard rejected - already restored)")
-            #endif
-            return
-        }
-        #if DEBUG
-        logStageTiming(event: "restoreNativeOmniboxGlass START (trigger: \(trigger))")
-        #endif
-        withAnimation(animation) {
-            omniboxNativeGlassOpacity = 1.0
-            normalMinimizeFallbackOpacity = 0.0
-            stageTransitionFallbackOpacity = 0.0
-        }
-    }
-
-    private func cancelStageGlassRestore(reason: String = "unknown") {
-        if stageRestoreTask != nil {
-            #if DEBUG
-            logStageTiming(event: "StageGlassRestore CANCELLED (reason: \(reason))")
-            #endif
-            stageRestoreTask?.cancel()
-            stageRestoreTask = nil
-        }
-    }
-
-    /// Coordinates Stage Manager native glass restoration, requiring both NSApp.isActive and window.isKeyWindow
-    /// before scheduling a single cancelable restoration across the calibrated 0.85s fly-in duration.
-    private func scheduleStageGlassRestoreIfReady(trigger: String) {
-        let win = targetWindow
-        let active = NSApp.isActive
-        let key = win?.isKeyWindow ?? false
-
-        guard stageTransitionFallbackOpacity > 0 else { return }
-        guard let win, !win.isMiniaturized else { return }
-        guard active && key else { return }
-        guard stageRestoreTask == nil else { return }
-
-        #if DEBUG
-        logStageTiming(event: "StageGlassRestore SCHEDULED trigger=\(trigger) delay=\(Motion.stageGlassRestoreDelay)")
-        #endif
-
-        stageRestoreTask = Task { @MainActor in
-            do {
-                try await Task.sleep(nanoseconds: UInt64(Motion.stageGlassRestoreDelay * 1_000_000_000))
-            } catch {
-                return
-            }
-
-            guard !Task.isCancelled else { return }
-            stageRestoreTask = nil
-
-            let winNow = targetWindow
-            let activeNow = NSApp.isActive
-            let keyNow = winNow?.isKeyWindow ?? false
-
-            guard stageTransitionFallbackOpacity > 0, activeNow, keyNow, let winNow, !winNow.isMiniaturized else {
-                #if DEBUG
-                logStageTiming(event: "StageGlassRestore CANCELLED (reason: conditions no longer met on completion)")
-                #endif
-                return
-            }
-
-            #if DEBUG
-            logStageTiming(event: "StageGlassRestore EXECUTE trigger=\(trigger)")
-            #endif
-            restoreNativeOmniboxGlass(trigger: "stageLanding", animation: Motion.stageGlassHandoff)
-        }
-    }
     /// The room the page leaves for the column and the strip, set without
     /// animation (see `make(room:after:)`); nil only before the window is up.
     @State private var room: CGSize?
@@ -594,11 +507,7 @@ struct ContentView: View {
     @ViewBuilder
     private var field: some View {
         if browser.fieldShowing {
-            Omnibox(
-                browser: browser,
-                fallbackOpacity: effectiveFallbackOpacity,
-                nativeGlassOpacity: omniboxNativeGlassOpacity
-            )
+            Omnibox(browser: browser)
             // Centred on the page, not on the window.
             .padding(.leading, sidebar ? browser.prefs.sideWidth : 0)
             .transition(.scale(scale: 0.97).combined(with: .opacity))
@@ -679,12 +588,6 @@ struct ContentView: View {
                     #if DEBUG
                     logStageTiming(event: "willMiniaturize")
                     #endif
-                    cancelStageGlassRestore(reason: "willMiniaturize")
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        normalMinimizeFallbackOpacity = 1.0
-                    }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMiniaturizeNotification)) { note in
@@ -692,13 +595,10 @@ struct ContentView: View {
                     #if DEBUG
                     logStageTiming(event: "didMiniaturize")
                     #endif
-                    cancelStageGlassRestore(reason: "didMiniaturize")
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
                         restorePresentationOpacity = 0.0
-                        omniboxNativeGlassOpacity = 0.0
-                        normalMinimizeFallbackOpacity = 1.0
                     }
                 }
             }
@@ -721,39 +621,19 @@ struct ContentView: View {
                     } else {
                         restorePresentationOpacity = 1.0
                     }
-
-                    DispatchQueue.main.async {
-                        restoreNativeOmniboxGlass(trigger: "didDeminiaturize")
-                    }
                 }
             }
-            // Stage Manager exit transition: prepare fallback before native glass is suspended
+            // Stage Manager exit transition: let SwiftUI manage native glass lifecycle
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)) { _ in
                 #if DEBUG
                 logStageTiming(event: "willResignActive")
                 #endif
-                cancelStageGlassRestore(reason: "willResignActive")
-                guard let win = targetWindow, win.isVisible, !win.isMiniaturized else { return }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    stageTransitionFallbackOpacity = 1.0
-                    omniboxNativeGlassOpacity = 0.0
-                }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
                 guard let win = targetWindow, (note.object as? NSWindow) === win else { return }
                 #if DEBUG
                 logStageTiming(event: "didResignKey")
                 #endif
-                cancelStageGlassRestore(reason: "didResignKey")
-                guard win.isVisible, !win.isMiniaturized else { return }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    stageTransitionFallbackOpacity = 1.0
-                    omniboxNativeGlassOpacity = 0.0
-                }
             }
             // Stepping away to another app: macOS draws its own resting
             // buttons, and on a light window they come out nearly white. Ours
@@ -772,16 +652,8 @@ struct ContentView: View {
                 #if DEBUG
                 logStageTiming(event: "didChangeOcclusionState")
                 #endif
-                guard !win.isMiniaturized else { return }
-                if !win.occlusionState.contains(.visible) {
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        omniboxNativeGlassOpacity = 0.0
-                    }
-                }
             }
-            // Returning to active stage: hand cleanly back to native Liquid Glass
+            // Returning to active stage: let SwiftUI manage native glass lifecycle
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.willBecomeActiveNotification)) { _ in
                 #if DEBUG
                 logStageTiming(event: "willBecomeActive")
@@ -793,7 +665,6 @@ struct ContentView: View {
                     logStageTiming(event: "didBecomeKey")
                     #endif
                     Browser.front = browser
-                    scheduleStageGlassRestoreIfReady(trigger: "didBecomeKey")
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didMoveNotification)) { note in
@@ -835,10 +706,8 @@ struct ContentView: View {
                 #endif
                 resting?.isHidden = true
                 browser.appBack()
-                scheduleStageGlassRestoreIfReady(trigger: "didBecomeActive")
             }
             .onReceive(paletteUpdates.$revision) { _ in
-                let targetWindow = window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == "browser" }) ?? NSApp.mainWindow
                 targetWindow?.isOpaque = false
                 targetWindow?.backgroundColor = .clear
                 targetWindow?.contentView?.needsDisplay = true
@@ -864,9 +733,6 @@ struct ContentView: View {
             // Addresses from other apps have somewhere to go from here on.
             Links.hand(to: browser)
             BookmarkMenu.shared.start(for: browser)
-        }
-        .onDisappear {
-            cancelStageGlassRestore(reason: "onDisappear")
         }
     }
 

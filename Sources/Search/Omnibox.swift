@@ -10,9 +10,6 @@ struct Omnibox: View {
     @ObservedObject var browser: Browser
     /// Raised over a page by ⌘L, rather than standing on an empty tab.
     var over: Bool = false
-    /// Transient fallback and native glass opacities during minimize/restore
-    var fallbackOpacity: Double = 0.0
-    var nativeGlassOpacity: Double = 1.0
 
     /// The field's own height — the 22 of text and 14 of air above and below it
     /// that `field` lays out — so the list can sit below it without being
@@ -81,22 +78,19 @@ struct Omnibox: View {
                     Breath()
 
                     if #available(macOS 26.0, *) {
-                        // Temporary fallback surrogate: frosted glass + wash, visible during minimize / restore
-                        ZStack {
-                            FrostedGlass(material: .popover, cornerRadius: Self.cornerRadius)
-                                .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
-
-                            RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
-                                .fill(isDark ? Color.black.opacity(0.22) : Color.white.opacity(0.22))
-                        }
-                        .opacity(fallbackOpacity)
-
-                        NativeLiquidGlassView(
-                            style: .regular,
+                        RoundedRectangle(
                             cornerRadius: Self.cornerRadius,
-                            tintColor: nil
+                            style: .continuous
                         )
-                        .opacity(nativeGlassOpacity)
+                        .fill(.clear)
+                        .glassEffect(
+                            .regular,
+                            in: RoundedRectangle(
+                                cornerRadius: Self.cornerRadius,
+                                style: .continuous
+                            )
+                        )
+                        .allowsHitTesting(false)
                     } else {
                         FrostedGlass(material: .popover, cornerRadius: Self.cornerRadius)
                             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous))
